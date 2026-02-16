@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}Authentication - AditivaFlow{% endblock %}
+{% block header_title %}AditivaFlow Authentication{% endblock %}
+
+{% block content %}
+<div
+    style="max-width: 600px; margin: 0 auto; background: var(--card-bg); padding: 2rem; border-radius: 8px; border: 1px solid var(--border-color);">
+    <h2>Platform Integration</h2>
+    <p style="color: var(--text-secondary); margin-bottom: 2rem;">
+        Enter your AditivaFlow platform token here to enable cloud integration.
+    </p>
+
+    <form id="tokenForm">
+        <div class="form-group">
+            <label for="token">Integration Token</label>
+            <input type="password" id="token" name="token" placeholder="Enter your token..." required
+                style="font-family: monospace; letter-spacing: 1px; padding: 1rem;">
+        </div>
+
+        <div class="actions" style="margin-top: 2rem; justify-content: flex-end;">
+            <button type="submit" class="btn btn-primary">Save Token</button>
+        </div>
+    </form>
+
+    <div id="msg" style="margin-top: 1rem; padding: 1rem; border-radius: 4px; display: none;"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.getElementById('tokenForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const token = document.getElementById('token').value;
+        const msg = document.getElementById('msg');
+
+        const res = await fetch('/api/save_token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token })
+        });
+
+        const data = await res.json();
+
+        msg.style.display = 'block';
+        if (data.success) {
+            msg.style.backgroundColor = 'rgba(46, 160, 67, 0.2)';
+            msg.style.color = 'var(--success-color)';
+            msg.innerText = 'Token saved successfully!';
+        } else {
+            msg.style.backgroundColor = 'rgba(248, 81, 73, 0.2)';
+            msg.style.color = 'var(--danger-color)';
+            msg.innerText = 'Failed to save token.';
+        }
+    });
+
+    // Load existing token (masked)
+    async function loadToken() {
+        const res = await fetch('/api/get_token');
+        const data = await res.json();
+        if (data.token) {
+            document.getElementById('token').value = data.token;
+        }
+    }
+    loadToken();
+</script>
+{% endblock %}

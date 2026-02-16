@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+div.printer-grid {
+display: grid;
+grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+gap: 1.5rem;
+}
+
+div.card {
+background-color: var(--card-bg);
+border: 1px solid var(--border-color);
+border-radius: 8px;
+padding: 1.5rem;
+display: flex;
+flex-direction: column;
+gap: 1rem;
+transition: transform 0.2s, box-shadow 0.2s;
+}
+
+div.card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+
+div.card-header {
+display: flex; justify-content: space-between; align-items: center;
+border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; margin-bottom: 0.5rem;
+}
+
+span.status-badge {
+padding: 0.25rem 0.5rem; border-radius: 12px; font-size: 0.8rem; font-weight: 600; text-transform: uppercase;
+}
+
+span.status-running { background-color: rgba(46, 160, 67, 0.2); color: var(--success-color); }
+span.status-paused { background-color: rgba(210, 153, 34, 0.2); color: var(--warning-color); }
+span.status-offline { background-color: rgba(248, 81, 73, 0.2); color: var(--danger-color); }
+span.status-idle { background-color: rgba(88, 166, 255, 0.2); color: var(--accent-color); }
+
+div.progress-bar {
+height: 8px; background-color: var(--border-color); border-radius: 4px; overflow: hidden; margin-top: 0.5rem;
+}
+
+div.progress-fill {
+height: 100%; background-color: var(--success-color); width: 0%; transition: width 0.5s ease-out;
+}
+
+div.stats-grid {
+display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.9rem; color: var(--text-secondary);
+}
+
+div.stat-item { display: flex; align-items: center; gap: 0.5rem; }
+{% endblock %}
+
+{% block title %}Printers - AditivaFlow{% endblock %}
+
+{% block header_title %}AditivaFlow Printers Hub{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-primary" onclick="openModal()"><i class="fas fa-plus"></i> Add Printer</button>
+{% endblock %}
+
+{% block content %}
+<div id="printerGrid" class="printer-grid">
+    <!-- Javascript will inject cards here -->
+</div>
+
+<!-- Add Printer Modal -->
+<div id="addModal" class="modal">
+    <div class="modal-content">
+        <span class="close-btn" onclick="closeModal()">&times;</span>
+        <h2>Add New Printer</h2>
+        <form id="addForm">
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" id="pName" required>
+            </div>
+            <div class="form-group">
+                <label>Type</label>
+                <select id="pType" required onchange="toggleFields()">
+                    <option value="moonraker">Klipper / Moonraker</option>
+                    <option value="bambu">Bambu Lab</option>
+                    <option value="elegoo">Elegoo (Saturn Series)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>IP Address</label>
+                <input type="text" id="pIp" required>
+            </div>
+            <div class="form-group" id="serialGroup" style="display:none;">
+                <label>Serial Number</label>
+                <input type="text" id="pSerial">
+            </div>
+            <div class="form-group" id="accessGroup" style="display:none;">
+                <label>Access Code</label>
+                <input type="password" id="pAccess">
+            </div>
+            <div class="actions">
+                <button type="submit" class="btn btn-primary">Save Printer</button>
+                <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const modal = document.getElementById('addModal');
+
+    function openModal() { modal.style.display = 'flex'; }
+    function closeModal() { modal.style.display = 'none'; }
+
+    function toggleFields() {
+        const type = document.getElementById('pType').value;
+        const serialGroup = document.getElementById('serialGroup');
+        const accessGroup = document.getElementById('accessGroup');
+
+        if (type === 'bambu') {
+            serialGroup.style.display = 'block';
+            accessGroup.style.display = 'block';
+        } else {
+            serialGroup.style.display = 'none';
+            accessGroup.style.display = 'none';
+        }
+    }
+
+    document.getElementById('addForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const data = {
+            name: document.getElementById('pName').value,
+            type: document.getElementById('pType').value,
+            ip: document.getElementById('pIp').value,
+            serial: document.getElementById('pSerial').value,
+            access_code: document.getElementById('pAccess').value
+        };
+
+        const res = await fetch('/api/add_printer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+
+        if (res.ok) {
+            closeModal();
+            fetchPrinters();
+            document.getElementById('addForm').reset();
+        }
+    });
+
+    async function fetchPrinters() {
+        const res = await fetch('/api/printers');
+        const printers = await res.json();
+        const grid = document.getElementById('printerGrid');
+        grid.innerHTML = '';
+
+        printers.forEach(p => {
+            const card = document.createElement('div');
+            card.className = 'card';
+
+            let statusClass = 'status-idle';
+            if (p.state.toLowerCase().includes('run') || p.state.toLowerCase().includes('print')) statusClass = 'status-running';
+            else if (p.state.toLowerCase().includes('offline')) statusClass = 'status-offline';
+            else if (p.state.toLowerCase().includes('pause')) statusClass = 'status-paused';
+
+            const progress = p.progress ? p.progress.toFixed(1) : 0;
+            const filename = p.filename || 'No file';
+            const nozzle = p.temp_nozzle || 0;
+            const bed = p.temp_bed || 0;
+
+            card.innerHTML = `
+                <div class="card-header">
+                    <h3>${p.name}</h3>
+                    <span class="status-badge ${statusClass}">${p.state}</span>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-item"><i class="fas fa-cube"></i> ${p.type}</div>
+                    <div class="stat-item"><i class="fas fa-network-wired"></i> ${p.ip}</div>
+                </div>
+                <div class="stats-grid" style="margin-top: 0.5rem;">
+                    <div class="stat-item"><i class="fas fa-thermometer-half"></i> Nozzle: ${nozzle}°C</div>
+                    <div class="stat-item"><i class="fas fa-bed"></i> Bed: ${bed}°C</div>
+                </div>
+                <div style="margin-top: 0.5rem;">
+                    <div style="display:flex; justify-content:space-between; font-size:0.85rem; color:var(--text-secondary);">
+                        <span>${filename}</span>
+                        <span>${progress}%</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${progress}%"></div>
+                    </div>
+                </div>
+                <div class="actions">
+                    ${p.state.toLowerCase().includes('run') ?
+                    `<button class="btn btn-secondary" onclick="control('${p.id}', 'pause')"><i class="fas fa-pause"></i></button>
+                         <button class="btn btn-danger" onclick="control('${p.id}', 'stop')"><i class="fas fa-stop"></i></button>` :
+                    p.state.toLowerCase().includes('pause') ?
+                        `<button class="btn btn-secondary" onclick="control('${p.id}', 'resume')"><i class="fas fa-play"></i></button>
+                         <button class="btn btn-danger" onclick="control('${p.id}', 'stop')"><i class="fas fa-stop"></i></button>` :
+                        `<button class="btn btn-secondary" disabled>Idle</button>`
+                }
+                    <button class="btn btn-danger" style="margin-left:auto;" onclick="deletePrinter('${p.id}')"><i class="fas fa-trash"></i></button>
+                </div>
+            `;
+            grid.appendChild(card);
+        });
+    }
+
+    async function control(id, cmd) {
+        await fetch('/api/control', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, command: cmd })
+        });
+        fetchPrinters();
+    }
+
+    async function deletePrinter(id) {
+        if (!confirm('Are you sure?')) return;
+        await fetch('/api/delete_printer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id })
+        });
+        fetchPrinters();
+    }
+
+    // Auto refresh
+    setInterval(fetchPrinters, 2000);
+    fetchPrinters();
+</script>
+{% endblock %}

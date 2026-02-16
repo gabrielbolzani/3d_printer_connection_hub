@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+
+{% block title %}System Monitor - AditivaFlow{% endblock %}
+{% block header_title %}System Monitor{% endblock %}
+
+{% block content %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<div style="display: flex; flex-direction: column; gap: 2rem;">
+
+    <!-- Application Section -->
+    <section>
+        <div
+            style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; margin-bottom: 1rem;">
+            <h2 style="font-size: 1.2rem; color: var(--accent-color); margin: 0;">
+                <i class="fas fa-cube"></i> Application Metrics
+            </h2>
+            <div style="font-size: 0.9rem; color: var(--text-secondary);">
+                <i class="fas fa-clock"></i> Uptime: <span id="app-uptime"
+                    style="font-weight: bold; color: var(--text-primary);">0s</span>
+            </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem;">
+            <!-- App CPU Chart -->
+            <div
+                style="background: var(--card-bg); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                <canvas id="appCpuChart" style="width: 100%; height: 200px;"></canvas>
+            </div>
+            <!-- App Memory Chart -->
+            <div
+                style="background: var(--card-bg); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                <canvas id="appMemChart" style="width: 100%; height: 200px;"></canvas>
+            </div>
+            <!-- App I/O Chart -->
+            <div
+                style="background: var(--card-bg); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                <canvas id="appIoChart" style="width: 100%; height: 200px;"></canvas>
+            </div>
+        </div>
+    </section>
+
+    <!-- System Section -->
+    <section>
+        <h2
+            style="font-size: 1.2rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; margin-bottom: 1rem; color: var(--text-secondary);">
+            <i class="fas fa-server"></i> System Resources
+        </h2>
+
+        <!-- Summary Cards -->
+        <div
+            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+            <div
+                style="background: var(--card-bg); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                <div style="font-size: 0.8rem; color: var(--text-secondary);">System CPU</div>
+                <div style="font-size: 1.5rem; font-weight: bold;" id="sys-cpu-val">0%</div>
+            </div>
+            <div
+                style="background: var(--card-bg); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                <div style="font-size: 0.8rem; color: var(--text-secondary);">System RAM</div>
+                <div style="font-size: 1.5rem; font-weight: bold;" id="sys-mem-val">0%</div>
+                <div style="font-size: 0.7rem; color: var(--text-secondary);" id="sys-mem-detail"></div>
+            </div>
+            <div
+                style="background: var(--card-bg); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                <div style="font-size: 0.8rem; color: var(--text-secondary);">Disk Usage</div>
+                <div style="font-size: 1.5rem; font-weight: bold;" id="disk-val">0%</div>
+            </div>
+            <div
+                style="background: var(--card-bg); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                <div style="font-size: 0.8rem; color: var(--text-secondary);">Net Traffic</div>
+                <div style="font-size: 0.9rem; font-weight: bold; margin-top: 5px;">
+                    <i class="fas fa-arrow-up"></i> <span id="net-sent">0</span> <br>
+                    <i class="fas fa-arrow-down"></i> <span id="net-recv">0</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Configuration for Charts
+    const maxDataPoints = 60;
+    const initialLabels = Array(maxDataPoints).fill('');
+    const initialData = Array(maxDataPoints).fill(0);
+
+    function createConfig(label, color) {
+        return {
+            type: 'line',
+            data: {
+                labels: initialLabels,
+                datasets: [{
+                    label: label,
+                    data: [...initialData], // Clone array
+                    borderColor: color,
+                    backgroundColor: color + '33',
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 0,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false, // Performance optimization
+                scales: {
+                    x: { display: false },
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: '#30363d' },
+                        ticks: { color: '#8b949e' }
+                    }
+                },
+                plugins: {
+                    legend: { labels: { color: '#c9d1d9' } },
+                }
+            }
+        };
+    }
+
+    function formatBytes(bytes, decimals = 2) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
+
+    function formatTime(seconds) {
+        const d = Math.floor(seconds / (3600 * 24));
+        const h = Math.floor(seconds % (3600 * 24) / 3600);
+        const m = Math.floor(seconds % 3600 / 60);
+        const s = Math.floor(seconds % 60);
+
+        const dDisplay = d > 0 ? d + (d == 1 ? "d " : "d ") : "";
+        const hDisplay = h > 0 ? h + (h == 1 ? "h " : "h ") : "";
+        const mDisplay = m > 0 ? m + (m == 1 ? "m " : "m ") : "";
+        const sDisplay = s > 0 ? s + (s == 1 ? "s" : "s") : "";
+        return dDisplay + hDisplay + mDisplay + sDisplay;
+    }
+
+    const ctxAppCpu = document.getElementById('appCpuChart').getContext('2d');
+    const chartAppCpu = new Chart(ctxAppCpu, createConfig('App CPU Usage (%)', '#58a6ff'));
+
+    const ctxAppMem = document.getElementById('appMemChart').getContext('2d');
+    const chartAppMem = new Chart(ctxAppMem, createConfig('App Memory', '#2ea043'));
+
+    const ctxAppIo = document.getElementById('appIoChart').getContext('2d');
+    const chartAppIo = new Chart(ctxAppIo, createConfig('App I/O Activity (Bytes/s)', '#d29922'));
+
+    async function updateStats() {
+        try {
+            const res = await fetch('/api/system_stats');
+            const data = await res.json();
+
+            // Store references
+            const cpuData = data.app.cpu;
+            const memData = data.app.memory_bytes;
+            const ioSpeed = data.app.io_read_speed + data.app.io_write_speed;
+            const ioRead = data.app.io_read_bytes;
+            const ioWrite = data.app.io_write_bytes;
+
+            // Update Charts
+            updateChartData(chartAppCpu, cpuData, `App CPU Usage (${cpuData}%)`);
+            updateChartData(chartAppMem, memData, `App Memory (${formatBytes(memData)})`);
+            updateChartData(chartAppIo, ioSpeed, `App I/O (${formatBytes(ioSpeed)}/s) | Rx: ${formatBytes(ioRead)} | Tx: ${formatBytes(ioWrite)}`);
+
+            // Update Uptime
+            setText('app-uptime', formatTime(data.app.uptime_seconds));
+
+            // Update System Cards
+            setText('sys-cpu-val', data.system.cpu + '%');
+
+            setText('sys-mem-val', data.system.memory_percent + '%');
+            setText('sys-mem-detail', `${formatBytes(data.system.memory_used_bytes)} / ${formatBytes(data.system.memory_total_bytes)}`);
+
+            setText('disk-val', data.system.disk_percent + '%');
+
+            setText('net-sent', formatBytes(data.system.net_sent_bytes));
+            setText('net-recv', formatBytes(data.system.net_recv_bytes));
+
+        } catch (e) {
+            console.error("Fetch error:", e);
+        }
+    }
+
+    function setText(id, val) {
+        const el = document.getElementById(id);
+        if (el) el.innerText = val;
+    }
+
+    function updateChartData(chart, newValue, newLabel) {
+        const d = chart.data.datasets[0].data;
+        d.shift();
+        d.push(newValue);
+        if (newLabel) chart.data.datasets[0].label = newLabel;
+        chart.update('none'); // Smoother update
+    }
+
+    setInterval(updateStats, 1000);
+    updateStats();
+</script>
+{% endblock %}
