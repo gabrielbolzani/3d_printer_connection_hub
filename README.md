@@ -1,83 +1,83 @@
-# 3D Printer Connection Hub
+# Hub de Conexão de Impressoras 3D - AditivaFlow
 
-A powerful, centralized gateway for managing and merging 3D printers from different manufacturers (Bambu Lab, Klipper/Moonraker, Elegoo) into a single, unified dashboard. Designed to run headless on a dedicated machine (like a Raspberry Pi or Mini PC) but accessible from any device via a responsive web interface.
+Um gateway centralizado e poderoso projetado para complementar a plataforma **AditivaFlow**. Este projeto permite gerenciar e unificar impressoras 3D de diferentes fabricantes (Bambu Lab, Klipper/Moonraker, Elegoo) em um dashboard único e unificado.
 
-![Dashboard Preview](https://via.placeholder.com/800x400?text=Dashboard+Preview) <!-- Replace with actual screenshot later -->
+Projetado para rodar em modo "headless" (sem monitor) em uma máquina dedicada (como um Raspberry Pi ou Mini PC), mas acessível de qualquer dispositivo através de uma interface web responsiva.
 
-## Key Features
+## 🚀 Funcionalidades Principais
 
-*   **Unified Dashboard**: Monitor multiple printers in real-time on a single screen. No more tab switching between different printer IPs.
-*   **Multi-Brand Support**: Seamlessly integrate printers from different ecosystems:
-    *   **Bambu Lab**: Full status monitoring via secure MQTT.
-    *   **Klipper / Moonraker**: Standard integration for Vorons, Creality K1/max (rooted), and other Klipper-based machines.
-    *   **Elegoo (Saturn Series)**: Direct UDP communication for resin printers like the Saturn 3 Ultra.
-*   **System Monitor**: Built-in resource tracking for the host machine (CPU, RAM, Disk, Network I/O) to ensure smooth operation.
-*   **Responsive Design**: Mobile-friendly interface that works great on desktops, tablets, and smartphones.
-*   **Secure Token Storage**: Safely manages integration tokens for external cloud connectivity.
-*   **Extensible Driver System**: Modular Python architecture makes adding new printer types easy.
+*   **Integração AditivaFlow**: Atua como uma ponte para conectar suas impressoras locais à nuvem e serviços da AditivaFlow.
+*   **Dashboard Unificado**: Monitore múltiplas impressoras em tempo real em uma única tela. Chega de alternar abas entre diferentes IPs.
+*   **Suporte Multi-Marca**: Integração perfeita de impressoras de diferentes ecossistemas:
+    *   **Bambu Lab**: Monitoramento completo de status via MQTT seguro (SSL).
+    *   **Klipper / Moonraker**: Integração padrão para Vorons, RatRig, Creality K1/Max (com root) e outras máquinas baseadas em Klipper.
+    *   **Elegoo (Série Saturn)**: Comunicação direta UDP para impressoras de resina como a Saturn 3 Ultra.
+*   **Monitoramento do Sistema**: Rastreamento integrado de recursos da máquina host (CPU, RAM, Disco, Rede e I/O da Aplicação) para garantir operação estável.
+*   **Design Responsivo**: Interface amigável para dispositivos móveis que funciona perfeitamente em desktops, tablets e smartphones.
+*   **Armazenamento Seguro**: Gerencia com segurança os tokens de integração para conectividade externa.
 
-## Supported Hardware
+## 🖨️ Hardware Suportado
 
-The application currently includes drivers for:
-*   **Bambu Lab**: X1C, P1S, A1, A1 Mini (requires Access Code & Serial).
-*   **Klipper**: Any printer running Moonraker API (e.g., Voron, RatRig, Creality K1/Max).
-*   **Elegoo**: Tested with Saturn 3 Ultra (Reference Implementation for Chitu Systems).
+A aplicação inclui atualmente drivers para:
+*   **Bambu Lab**: X1C, P1S, A1, A1 Mini (requer Código de Acesso e Serial).
+*   **Klipper**: Qualquer impressora rodando API Moonraker (ex: Voron, Creality K1/Max).
+*   **Elegoo**: Testado com Saturn 3 Ultra (Implementação de referência para sistemas Chitu).
 
-## Installation
+## 🛠️ Instalação
 
-### Prerequisites
-*   Python 3.8 or higher
-*   `pip` package manager
+### Pré-requisitos
+*   Python 3.8 ou superior
+*   Gerenciador de pacotes `pip`
 
-### Steps
+### Passos
 
-1.  **Clone the Repository**
+1.  **Clone o Repositório**
     ```bash
     git clone https://github.com/gabrielbolzani/3d_printer_connection_hub.git
     cd 3d_printer_connection_hub
     ```
 
-2.  **Install Dependencies**
+2.  **Instale as Dependências**
     ```bash
     pip install -r requirements.txt
     ```
 
-3.  **Run the Application**
+3.  **Execute a Aplicação**
     ```bash
     python app.py
     ```
 
-4.  **Access the Dashboard**
-    Open your web browser and navigate to:
-    `http://localhost:5000` or `http://<your-machine-ip>:5000`
+4.  **Acesse o Dashboard**
+    Abra seu navegador e acesse:
+    `http://localhost:5000` ou `http://<ip-da-sua-maquina>:5000`
 
-## Configuration
+## ⚙️ Configuração
 
-### Adding a Printer
-1.  Navigate to the **Printers** tab on the sidebar.
-2.  Click the **Add Printer** button in the top right.
-3.  Select your printer type (Bambu, Moonraker, or Elegoo).
-4.  Enter the required details (IP Address, Serial Number, Access Code, etc.).
-5.  Click **Add**. The printer will appear instantly on the dashboard.
+### Adicionando uma Impressora
+1.  Navegue até a aba **Printers** (Impressoras) na barra lateral.
+2.  Clique no botão **Add Printer** (Adicionar Impressora) no canto superior direito.
+3.  Selecione o tipo da impressora (Bambu, Moonraker ou Elegoo).
+4.  Insira os detalhes necessários (Endereço IP, Número de Série, Código de Acesso, etc.).
+5.  Clique em **Add**. A impressora aparecerá instantaneamente no dashboard.
 
-### System Monitoring
-Navigate to the **System Monitor** tab to view real-time stats of the host machine, including specific resource usage of the Python Hub application itself.
+### Monitoramento do Sistema
+Navegue até a aba **System Monitor** para ver estatísticas em tempo real da máquina host, incluindo o uso específico de recursos da aplicação Python Hub.
 
-## Architecture
+## 🏗️ Arquitetura
 
-The project is built with:
-*   **Backend**: Python (Flask) for the web server and API.
-*   **Frontend**: HTML5, CSS3 (Custom responsive design), JavaScript (Fetch API, Chart.js).
-*   **Protocols**: MQTT (Bambu), HTTP REST (Moonraker), UDP (Elegoo).
+O projeto é construído com:
+*   **Backend**: Python (Flask) para o servidor web e API.
+*   **Frontend**: HTML5, CSS3 (Design responsivo customizado), JavaScript (Fetch API, Chart.js).
+*   **Protocolos**: MQTT (Bambu), HTTP REST (Moonraker), UDP (Elegoo).
 
-## Contributing
+## 🤝 Contribuição
 
-Contributions are welcome! If you'd like to add support for a new printer brand:
-1.  Fork the repository.
-2.  Create a new driver class inheriting from `BasePrinter` in `printer_drivers.py`.
-3.  Update the `create_printer` factory function.
-4.  Submit a Pull Request.
+Contribuições são bem-vindas! Se você quiser adicionar suporte para uma nova marca de impressora:
+1.  Faça um Fork do repositório.
+2.  Crie uma nova classe de driver herdando de `BasePrinter` em `printer_drivers.py`.
+3.  Atualize a função factory `create_printer`.
+4.  Envie um Pull Request.
 
-## License
+## 📄 Licença
 
-MIT License - feel free to use and modify for your own setups.
+MIT License - sinta-se à vontade para usar e modificar para seus próprios setups.
