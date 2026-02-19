@@ -6,6 +6,7 @@ import queue
 import ssl
 import requests
 import paho.mqtt.client as mqtt
+from datetime import datetime, timedelta
 
 # Base Printer Class
 class BasePrinter:
@@ -22,7 +23,8 @@ class BasePrinter:
             'filename': '',
             'remaining_time': 0,
             'layer': 0,
-            'total_layers': 0
+            'total_layers': 0,
+            'finish_time': '--'
         }
         self.last_update = 0
 
@@ -36,11 +38,17 @@ class BasePrinter:
         pass
 
     def get_status(self):
-        # Return a copy to avoid race conditions if accessed from different threads
         s = self.status.copy()
+        s['id'] = self.config.get('id')
         s['name'] = self.name
         s['type'] = self.type
         s['ip'] = self.ip
+        s['serial'] = self.config.get('serial', '')
+        s['access_code'] = self.config.get('access_code', '')
+        s['camera_url'] = self.config.get('camera_url', '')
+        s['camera_refresh'] = self.config.get('camera_refresh', False)
+        s['refresh_interval'] = self.config.get('refresh_interval', 5000)
+        s['enabled'] = self.config.get('enabled', True)
         s['last_update'] = self.last_update
         return s
 
@@ -81,21 +89,68 @@ class MoonrakerPrinter(BasePrinter):
     def send_command(self, command, **kwargs):
         try:
             if command == 'pause':
-                requests.post(f"http://{self.ip}/printer/print/pause")
+                requests.post(f"http://{self.ip}/printer/print/pause", timeout=3)
             elif command == 'resume':
-                requests.post(f"http://{self.ip}/printer/print/resume")
+                requests.post(f"http://{self.ip}/printer/print/resume", timeout=3)
             elif command == 'stop':
-                requests.post(f"http://{self.ip}/printer/print/cancel")
-        except:
-            pass
+                requests.post(f"http://{self.ip}/printer/print/cancel", timeout=3)
+            elif command == 'home':
+                requests.post(f"http://{self.ip}/printer/gcode/script",
+                    json={'script': 'G28'}, timeout=3)
+            elif command == 'motors_off':
+                requests.post(f"http://{self.ip}/printer/gcode/script",
+                    json={'script': 'M84'}, timeout=3)
+            elif command == 'gcode':
+                gcode = kwargs.get('gcode', '')
+                if gcode:
+                    requests.post(f"http://{self.ip}/printer/gcode/script",
+                        json={'script': gcode}, timeout=3)
+            elif command == 'fan':
+                val = int(kwargs.get('val', 0))
+                pwm = int(val / 100 * 255)
+                fval = val / 100.0
+                # Try both M106 and SET_PIN for compatibility with different K1/Klipper setups
+                requests.post(f"http://{self.ip}/printer/gcode/script",
+                    json={'script': f'M106 S{pwm}'}, timeout=3)
+                requests.post(f"http://{self.ip}/printer/gcode/script",
+                    json={'script': f'SET_PIN PIN=fan0 VALUE={fval:.2f}'}, timeout=3)
+            elif command == 'led':
+                val = int(kwargs.get('val', 0))
+                pwm = int(val / 100 * 255)
+                fval = val / 100.0
+                # M355 is standard for some, others use SET_PIN
+                requests.post(f"http://{self.ip}/printer/gcode/script",
+                    json={'script': f'M355 S{1 if val > 0 else 0} P{pwm}'}, timeout=3)
+                requests.post(f"http://{self.ip}/printer/gcode/script",
+                    json={'script': f'SET_PIN PIN=LED VALUE={fval:.2f}'}, timeout=3)
+                # K1 Max specific often uses caselight pin
+                requests.post(f"http://{self.ip}/printer/gcode/script",
+                    json={'script': f'SET_PIN PIN=caselight VALUE={fval:.2f}'}, timeout=3)
+            elif command == 'fan_aux':
+                val = int(kwargs.get('val', 0))
+                fval = val / 100.0
+                requests.post(f"http://{self.ip}/printer/gcode/script",
+                    json={'script': f'SET_PIN PIN=fan1 VALUE={fval:.2f}'}, timeout=3)
+            elif command == 'fan_chamber':
+                val = int(kwargs.get('val', 0))
+                fval = val / 100.0
+                requests.post(f"http://{self.ip}/printer/gcode/script",
+                    json={'script': f'SET_PIN PIN=fan2 VALUE={fval:.2f}'}, timeout=3)
+            elif command == 'reboot':
+                requests.post(f"http://{self.ip}/machine/reboot", timeout=3)
+        except Exception as e:
+            print(f"Moonraker command error: {e}")
 
 # Elegoo (Saturn 3 Ultra) Implementation - UDP
 class ElegooPrinter(BasePrinter):
     def __init__(self, config):
         super().__init__(config)
         self.port = config.get('port', 3000)
+        # Resin printers don't have nozzle/bed temperatures
+        self.status.pop('temp_nozzle', None)
+        self.status.pop('temp_bed', None)
 
-    def _send_udp(self, message):
+    def _send_command(self, message):
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.settimeout(2)
@@ -112,25 +167,45 @@ class ElegooPrinter(BasePrinter):
                 pass
 
     def update(self):
-        data = self._send_udp("M99999")
+        data = self._send_command("M99999")
         if data:
-            # Parse Elegoo JSON (structure from observation/example)
-            # Typically has: currentStatus, printInfo, etc.
-            # Example response structure usually matches what the C++ code expects
-            # But C++ code just deserializes into `doc`.
-            # Let's assume standard keys found in similar implementations
-            # "currentState", "printInfo": {"currentLayer": ..., "totalLayer": ..., "filename": ...}
+            # Structure from user's working example:
+            # response.get("Data", {}).get("Status", {}).get("PrintInfo", {})
+            wrapper = data.get("Data", {})
+            status = wrapper.get("Status", {})
+            info = status.get("PrintInfo", {})
+
+            # Status translation
+            status_code = status.get("CurrentStatus", -1)
+            status_map = {0: "Idle", 1: "Printing", 2: "Paused", 3: "Error"}
+            self.status['state'] = status_map.get(status_code, "Unknown").lower()
             
-            self.status['state'] = data.get('currentState', 'idle') # Check exact values
-            
-            info = data.get('printInfo', {})
             if info:
-                self.status['layer'] = info.get('currentLayer', 0)
-                self.status['total_layers'] = info.get('totalLayer', 0)
-                self.status['filename'] = info.get('filename', '')
-                self.status['progress'] = info.get('progress', 0) # If available, else calc from layers
-                if self.status['progress'] == 0 and self.status['total_layers'] > 0:
-                     self.status['progress'] = (self.status['layer'] / self.status['total_layers']) * 100
+                self.status['layer'] = info.get("CurrentLayer", 0)
+                self.status['total_layers'] = info.get("TotalLayer", 0)
+                self.status['filename'] = info.get("Filename", "")
+                
+                # Progress calculation
+                if self.status['total_layers'] > 0:
+                    self.status['progress'] = (self.status['layer'] / self.status['total_layers']) * 100
+                else:
+                    self.status['progress'] = 0
+                
+                # Time calculation (ticks to minutes for fmtEta compatibility)
+                current_ticks = info.get("CurrentTicks", 0)
+                total_ticks = info.get("TotalTicks", 0)
+                if total_ticks > current_ticks:
+                    remaining_ticks = total_ticks - current_ticks
+                    # remaining_time in minutes for fmtEta
+                    self.status['remaining_time'] = (remaining_ticks // 1000) // 60
+                    
+                    # Estimate finish time string (HH:mm)
+                    remaining_seconds = remaining_ticks / 1000
+                    finish_dt = datetime.now() + timedelta(seconds=remaining_seconds)
+                    self.status['finish_time'] = finish_dt.strftime("%H:%M")
+                else:
+                    self.status['remaining_time'] = 0
+                    self.status['finish_time'] = '--'
             
             self.last_update = time.time()
             return True
@@ -140,11 +215,11 @@ class ElegooPrinter(BasePrinter):
 
     def send_command(self, command, **kwargs):
         if command == 'pause':
-            self._send_udp("M25")
+            self._send_command("M25")
         elif command == 'resume':
-            self._send_udp("M24")
+            self._send_command("M24")
         elif command == 'stop':
-            self._send_udp("M33")
+            self._send_command("M33")
 
 # Bambu Lab Implementation - MQTT
 class BambuPrinter(BasePrinter):
@@ -249,6 +324,20 @@ class BambuPrinter(BasePrinter):
             msg = {"printing": {"command": "resume", "sequence_id": "0"}}
         elif command == 'stop':
             msg = {"printing": {"command": "stop", "sequence_id": "0"}}
+        elif command == 'led':
+            val = int(kwargs.get('val', 0))
+            msg = {
+                "system": {
+                    "sequence_id": "0",
+                    "command": "ledctrl",
+                    "led_node": "chamber_light",
+                    "led_mode": "on" if val > 0 else "off",
+                    "led_on_time": 500,
+                    "led_off_time": 500,
+                    "loop_times": 0,
+                    "interval_time": 0
+                }
+            }
         
         if msg:
             self.client.publish(topic, json.dumps(msg))
