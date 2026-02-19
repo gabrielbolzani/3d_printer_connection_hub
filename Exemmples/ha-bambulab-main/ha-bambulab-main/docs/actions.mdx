@@ -1,0 +1,349 @@
+---
+title: Actions
+previous: /device-triggers
+previousTitle: Device Triggers
+next: /misc/contributing
+nextTitle: Misc
+---
+
+For all actions the target device or entity is passed as a data field. In actions involving an AMS or external spool tray, this must be the tray entity id. In all other cases a device id.
+
+```yaml
+  data:
+    device_id: a1b2c3d4e5f6g7h8i9j0
+```
+
+```yaml
+  data:
+    entity_id: a1b2c3d4e5f6g7h8i9j0
+```
+
+## Send Command
+
+<Property name="action" type="bambu_lab.send_command" required>
+Sends arbitrary GCODE to the printer. Be careful as it does not check if the printer is running a job
+or not so before invoking this action, you should check the printer state to ensure it is not running a job.
+
+    ```yaml
+    action: bambu_lab.send_command
+    data:
+      device_id: a1b2c3d4e5f6g7h8i9j0
+      command: M104 S200
+    ```
+
+    The `data` object should contain the following properties:
+
+  <Accordion title="data" defaultOpen>
+    <Property name="command" type="string" required>
+      The command to perform, e.g. `M104 S200`
+    </Property>
+  </Accordion>
+</Property>
+
+## Print 3MF project file
+
+<Property name="action" type="bambu_lab.print_project_file" required>
+Prints 3MF file stored on SD card. 3MF file must be stored on SD card root and it must contain gcode (e.g., "Export sliced file" from slicer)
+
+    ```yaml
+    action: bambu_lab.print_project_file
+    data:
+      device_id: a1b2c3d4e5f6g7h8i9j0
+      filepath: cache/filename.3mf
+      plate: 1
+      timelapse: true
+      bed_leveling: false
+      flow_cali: false
+      vibration_cali: false
+      layer_inspect: false
+      use_ams: true
+      ams_mapping: -1,-1,2,-1
+    ```
+
+    The `data` object should contain the following properties:
+
+  <Accordion title="data" defaultOpen>
+    <Property name="filepath" type="string" required>
+     Filename on SD card (e.g. `test.3mf`)
+    </Property>
+
+    ---
+
+    <Property name="plate" type="number" optional>
+      Plate number to print
+    </Property>
+
+    ---
+
+    <Property name="timelapse" type="boolean" optional>
+      Record timelapse of the print
+    </Property>
+
+    ---
+
+    <Property name="bed_leveling" type="boolean" optional>
+      Perform bed leveling before print
+    </Property>
+
+    ---
+
+    <Property name="flow_cali" type="boolean" optional>
+      Perform flow calibration before print
+    </Property>
+
+    ---
+
+    <Property name="vibration_cali" type="boolean" optional>
+      Perform vibration calibration (aka XY Mech Sweep) before print
+    </Property>
+
+    ---
+
+    <Property name="layer_inspect" type="boolean" optional>
+      Perform first layer inspection during print
+    </Property>
+
+    ---
+
+    <Property name="use_ams" type="boolean" optional>
+      Use AMS for print. Uses external spool otherwise
+    </Property>
+
+    ---
+
+    <Property name="ams_mapping" type="string" optional>
+     See [https://community.home-assistant.io/t/bambu-lab-x1-x1c-mqtt/489510/738](https://community.home-assistant.io/t/bambu-lab-x1-x1c-mqtt/489510/738). ie:  `2,-1,0`
+    </Property>
+  </Accordion>
+</Property>
+
+## Extrude or Retract Filament
+
+<Property name="action" type="bambu_lab.extrude_retract" required>
+  Extrude or retract filament.
+
+    ```yaml
+    action: bambu_lab.extrude_retract
+    data:
+      device_id: a1b2c3d4e5f6g7h8i9j0
+      type: Extrude
+      force: false
+    ```
+
+    The `data` object should contain the following properties:
+
+  <Accordion title="data" defaultOpen>
+    <Property name="type" type="string" required>
+      The type of action to perform. Can be `Extrude` or `Retract`.
+    </Property>
+
+    ---
+
+    <Property name="force" type="boolean" optional>
+      Perform extrusion or retraction if nozzle temperature is below 170ºC.
+    </Property>
+
+  </Accordion>
+</Property>
+
+## Load Filament
+
+<Property name="action" type="bambu_lab.load_filament" required>
+  Load filament into the extruder from an AMS tray or external spool.
+
+    ```yaml
+    action: bambu_lab.load_filament
+    data:
+      entity_id: a1b2c3d4e5f6g7h8i9j0
+      temperature: 220
+    ```
+
+    The `data` object should contain the following properties:
+
+  <Accordion title="data" defaultOpen>
+    <Property name="temperature" type="number" optional>
+      Target nozzle temperature once the filament is loaded. If not set, uses the midpoint between min and max temperature of the current filament.
+    </Property>
+  </Accordion>
+</Property>
+
+## Unload Filament
+
+<Property name="action" type="bambu_lab.unload_filament" required>
+  Unload filament from the nozzle.
+
+    ```yaml
+    action: bambu_lab.unload_filament
+    data:
+      device_id: a1b2c3d4e5f6g7h8i9j0
+    ```
+</Property>
+
+## Set Filament
+
+<Property name="action" type="bambu_lab.set_filament" required>
+  Sets filament type and other data for an AMS tray or the external spool tray.
+
+    ```yaml
+    action: bambu_lab.set_filament
+    data:
+      entity_id: a1b2c3d4e5f6g7h8i9j0
+      tray_info_idx: GFL96
+      tray_color: FF00FF00
+      tray_type: PLA
+      nozzle_temp_min: 190
+      nozzle_temp_max: 240
+    ```
+
+    The `data` object should contain the following properties:
+
+  <Accordion title="data" defaultOpen>
+    <Property name="tray_info_idx" type="string" required>
+      Bambu's filament ID. E.g. GFL96 is Generic PLA Silk
+    </Property>
+
+    ---
+
+    <Property name="tray_color" type="string" required>
+      RGBA value for the color. E.g. FF0000FF is opaque red.
+    </Property>
+
+    ---
+
+    <Property name="tray_type" type="string" required>
+      Type of filament. E.g. 'PLA' or 'PETG'
+    </Property>
+
+    ---
+
+    <Property name="nozzle_temp_min" type="number" required>
+      The minimum temperature that it is recommended to print this filament at.
+    </Property>
+
+    ---
+
+    <Property name="nozzle_temp_max" type="number" required>
+      The maximum temperature that it is recommended to print this filament at.
+    </Property>
+  </Accordion>
+</Property>
+
+## Get Filament Data
+
+<Property name="action" type="bambu_lab.get_filament_data" required>
+  Gets a json string with details about all known filaments
+
+    ```yaml
+    action: bambu_lab.get_filament_data
+    data:
+      device_id: a1b2c3d4e5f6g7h8i9j0
+    ```
+
+</Property>
+
+## Move Axis
+
+<Property name="action" type="bambu_lab.move_axis" required>
+  Move the printer axis.
+
+    ```yaml
+    action: bambu_lab.move_axis
+    data:
+      device_id: a1b2c3d4e5f6g7h8i9j0
+      axis: X
+      distance: 10
+    ```
+
+    The `data` object should contain the following properties:
+
+  <Accordion title="data" defaultOpen>
+    <Property name="axis" type="string" required>
+      The axis to move. X1 and P1 devices, X and Y move the printhead, Z moves the bed. A1, Z moves the gantry, Y the bed, X the printhead.	
+    </Property>
+
+    ---
+
+    <Property name="distance" type="number" required>
+      The distance (in mm) to move the axis A negative distance moves Z up, X left, Y forward.	
+    </Property>
+
+  </Accordion>
+</Property>
+
+## Skip Objects
+
+<Property name="action" type="bambu_lab.skip_objects" required>
+  Skip objects currently being printed.
+  
+    ```yaml
+    action: bambu_lab.skip_objects
+    data:
+      device_id: a1b2c3d4e5f6g7h8i9j0
+      objects: 409,1463
+    ```
+
+    The `data` object should contain the following properties:
+
+  <Accordion title="data" defaultOpen>
+    <Property name="objects" type="string" required>
+     Object IDs are available from printable objects entity attributes	
+    </Property>
+  </Accordion>
+</Property>
+
+## Read AMS RFID target
+<Property name="action" type="bambu_lab.read_rfid" required>
+  Read the RFID tag on a Bambu spool
+  Triggers the AMS to attempt to re-read the RFID tag on the current spool. You must provide the AMS tray entity.
+
+    ```yaml
+    action: bambu_lab.read_rfid
+    data:
+      entity_id: a1b2c3d4e5f6g7h8i9j0
+    ```
+</Property>
+
+## Start the AMS filament drying
+<Property name="action" type="bambu_lab.start_filament_drying" required>
+  Starts AMS filament drying.
+
+    ```yaml
+    action: bambu_lab.start_filament_drying
+    data:
+      device_id: a1b2c3d4e5f6g7h8i9j0
+      temp: 65
+      rotate_tray: false
+      duration: 12
+    ```
+
+    The `data` object should contain the following properties:
+
+  <Accordion title="data" defaultOpen>
+    <Property name="temp" type="number" required>
+      Heating temperature. AMS 2 max is 65C. AMS HT max is 85C.
+    </Property>
+
+    ---
+
+    <Property name="rotate_tray" type="boolean" required>
+      Rotate tray while drying
+    </Property>
+
+    ---
+
+    <Property name="duration" type="number" required>
+      Drying time in hours.
+    </Property>
+  </Accordion>
+</Property>
+
+## Stops the AMS filament drying
+<Property name="action" type="bambu_lab.stop_filament_drying" required>
+  Stops AMS filament drying.
+
+    ```yaml
+    action: bambu_lab.stop_filament_drying
+    data:
+      device_id: a1b2c3d4e5f6g7h8i9j0
+    ```
+</Property>

@@ -1,229 +1,1758 @@
 {% extends "base.html" %}
 
-{% block extra_css %}
-div.printer-grid {
-display: grid;
-grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-gap: 1.5rem;
-}
-
-div.card {
-background-color: var(--card-bg);
-border: 1px solid var(--border-color);
-border-radius: 8px;
-padding: 1.5rem;
-display: flex;
-flex-direction: column;
-gap: 1rem;
-transition: transform 0.2s, box-shadow 0.2s;
-}
-
-div.card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
-
-div.card-header {
-display: flex; justify-content: space-between; align-items: center;
-border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; margin-bottom: 0.5rem;
-}
-
-span.status-badge {
-padding: 0.25rem 0.5rem; border-radius: 12px; font-size: 0.8rem; font-weight: 600; text-transform: uppercase;
-}
-
-span.status-running { background-color: rgba(46, 160, 67, 0.2); color: var(--success-color); }
-span.status-paused { background-color: rgba(210, 153, 34, 0.2); color: var(--warning-color); }
-span.status-offline { background-color: rgba(248, 81, 73, 0.2); color: var(--danger-color); }
-span.status-idle { background-color: rgba(88, 166, 255, 0.2); color: var(--accent-color); }
-
-div.progress-bar {
-height: 8px; background-color: var(--border-color); border-radius: 4px; overflow: hidden; margin-top: 0.5rem;
-}
-
-div.progress-fill {
-height: 100%; background-color: var(--success-color); width: 0%; transition: width 0.5s ease-out;
-}
-
-div.stats-grid {
-display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.9rem; color: var(--text-secondary);
-}
-
-div.stat-item { display: flex; align-items: center; gap: 0.5rem; }
+{% block title %}Printers — AditivaFlow Hub{% endblock %}
+{% block header_title %}
+<i class="fas fa-print" style="color:var(--accent);margin-right:0.5rem;font-size:0.9rem;"></i>
+Printers
 {% endblock %}
 
-{% block title %}Printers - AditivaFlow{% endblock %}
-
-{% block header_title %}AditivaFlow Printers Hub{% endblock %}
-
 {% block header_actions %}
-<button class="btn btn-primary" onclick="openModal()"><i class="fas fa-plus"></i> Add Printer</button>
+<button class="btn btn-primary" onclick="openAddModal()">
+    <i class="fas fa-plus"></i> Add Printer
+</button>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* ─────────────────────────────────────────
+PRINTER GRID — 3 cols → 2 → 1
+───────────────────────────────────────── */
+    .printer-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1.5rem;
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+
+    @media (max-width: 1100px) {
+        .printer-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+
+    @media (max-width: 700px) {
+        .printer-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 1200px) {
+        .printer-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+
+    @media (max-width: 680px) {
+        .printer-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    /* ─────────────────────────────────────────
+CARD
+───────────────────────────────────────── */
+    .pcard {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+        position: relative;
+    }
+
+    .pcard:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        border-color: var(--border-hover);
+    }
+
+    .pcard.disabled {
+        opacity: 0.5;
+    }
+
+    /* Accent stripe */
+    .pcard-stripe {
+        height: 3px;
+        width: 100%;
+        flex-shrink: 0;
+    }
+
+    .pcard.t-bambu .pcard-stripe {
+        background: linear-gradient(90deg, #2ea043, #58a6ff);
+    }
+
+    .pcard.t-moonraker .pcard-stripe {
+        background: linear-gradient(90deg, #d29922, #f0a500);
+    }
+
+    .pcard.t-elegoo .pcard-stripe {
+        background: linear-gradient(90deg, #8957e5, #c084fc);
+    }
+
+    .pcard.s-offline .pcard-stripe {
+        background: linear-gradient(90deg, #f85149, #ff7b72);
+    }
+
+    /* ─── CARD HEADER ─── */
+    .pcard-header {
+        display: flex;
+        align-items: center;
+        gap: 0.7rem;
+        padding: 0.85rem 1rem 0.5rem;
+    }
+
+    .pcard-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 9px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .pcard-icon svg {
+        width: 26px;
+        height: 26px;
+    }
+
+    .pcard-meta {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .pcard-name {
+        font-size: 0.875rem;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: var(--text-1);
+    }
+
+    .pcard-sub {
+        font-size: 0.7rem;
+        color: var(--text-2);
+        margin-top: 1px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .pcard-right {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 5px;
+    }
+
+    /* Status badge */
+    .sbadge {
+        font-size: 0.65rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        padding: 0.15rem 0.5rem;
+        border-radius: 20px;
+        white-space: nowrap;
+    }
+
+    .sbadge-running {
+        background: var(--green-dim);
+        color: var(--green);
+        border: 1px solid rgba(63, 185, 80, 0.3);
+    }
+
+    .sbadge-paused {
+        background: var(--yellow-dim);
+        color: var(--yellow);
+        border: 1px solid rgba(210, 153, 34, 0.3);
+    }
+
+    .sbadge-offline {
+        background: var(--red-dim);
+        color: var(--red);
+        border: 1px solid rgba(248, 81, 73, 0.3);
+    }
+
+    .sbadge-idle {
+        background: var(--accent-dim);
+        color: var(--accent);
+        border: 1px solid rgba(68, 147, 248, 0.3);
+    }
+
+    /* Toggle */
+    .ptoggle {
+        position: relative;
+        display: inline-block;
+        width: 34px;
+        height: 18px;
+    }
+
+    .ptoggle input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+    }
+
+    .ptoggle-slider {
+        position: absolute;
+        cursor: pointer;
+        inset: 0;
+        background: #2d333b;
+        transition: .25s;
+        border-radius: 18px;
+    }
+
+    .ptoggle-slider::before {
+        position: absolute;
+        content: "";
+        height: 12px;
+        width: 12px;
+        left: 3px;
+        bottom: 3px;
+        background: #fff;
+        transition: .25s;
+        border-radius: 50%;
+    }
+
+    .ptoggle input:checked+.ptoggle-slider {
+        background: var(--green);
+    }
+
+    .ptoggle input:checked+.ptoggle-slider::before {
+        transform: translateX(16px);
+    }
+
+    /* ─── CAMERA ─── */
+    .pcard-camera {
+        margin: 0 1rem 0.5rem;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        background: #000;
+        aspect-ratio: 16/9;
+        max-height: 220px;
+        position: relative;
+    }
+
+    .pcard-camera img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .cam-offline {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        color: var(--text-3);
+        font-size: 0.7rem;
+    }
+
+    .cam-offline i {
+        font-size: 1.2rem;
+    }
+
+    /* ─── FILENAME ─── */
+    .pcard-file {
+        padding: 0 1rem 0.3rem;
+        font-size: 0.75rem;
+        color: var(--text-1);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .pcard-file i {
+        color: var(--text-2);
+        margin-right: 4px;
+    }
+
+    /* ─── PROGRESS ─── */
+    .pcard-progress {
+        padding: 0 1rem 0.6rem;
+    }
+
+    .prog-labels {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.7rem;
+        color: var(--text-2);
+        margin-bottom: 4px;
+    }
+
+    .prog-labels strong {
+        color: var(--text-1);
+    }
+
+    .prog-bar {
+        height: 5px;
+        background: rgba(255, 255, 255, 0.06);
+        border-radius: 3px;
+        overflow: hidden;
+    }
+
+    .prog-fill {
+        height: 100%;
+        border-radius: 3px;
+        transition: width 0.5s ease;
+    }
+
+    .pf-bambu {
+        background: linear-gradient(90deg, #2ea043, #58a6ff);
+    }
+
+    .pf-moonraker {
+        background: linear-gradient(90deg, #d29922, #f0a500);
+    }
+
+    .pf-elegoo {
+        background: linear-gradient(90deg, #8957e5, #c084fc);
+    }
+
+    .pf-offline {
+        background: var(--red);
+    }
+
+    /* ─── STATS ─── */
+    .pcard-stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0.5rem;
+        padding: 0 1rem 0.85rem;
+    }
+
+    .stat-box {
+        background: rgba(255, 255, 255, 0.025);
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        padding: 0.4rem 0.6rem;
+    }
+
+    .stat-lbl {
+        font-size: 0.6rem;
+        color: var(--text-2);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom:
+            2px;
+    }
+
+    .stat-val {
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: var(--text-1);
+    }
+
+    .c-hot {
+        color: #ff7b72;
+    }
+
+    .c-warm {
+        color: var(--yellow);
+    }
+
+    .c-cool {
+        color: var(--accent);
+    }
+
+    .c-ok {
+        color: var(--green);
+    }
+
+    /* ─── AMS ─── */
+    .ams-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0.4rem;
+        padding: 0.5rem 1rem 0.8rem;
+    }
+
+    .ams-tray {
+        height: 24px;
+        border-radius: 4px;
+        border: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.6rem;
+        font-weight: 700;
+        text-shadow: 0 0 3px rgba(0, 0, 0, 0.8);
+        position: relative;
+        color: white;
+    }
+
+    .tray-active::after {
+        content: '';
+        position: absolute;
+        inset: -2px;
+        border: 2px solid var(--accent);
+        border-radius: 6px;
+    }
+
+    .ams-label {
+        font-size: 0.65rem;
+        color: var(--text-3);
+        margin: 0 1rem 0.2rem;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    /* ─── HMS ERRORS ─── */
+    .hms-box {
+        margin: 0 1rem 0.8rem;
+        background: var(--red-dim);
+        border: 1px solid rgba(248, 81, 73, 0.3);
+        border-radius: 6px;
+        padding: 0.4rem 0.6rem;
+        font-size: 0.7rem;
+        color: var(--red);
+    }
+
+    .hms-item {
+        margin-bottom: 2px;
+        display: flex;
+        justify-content: space-between;
+    }
+
+    .hms-item a {
+        color: var(--accent);
+        text-decoration: none;
+        font-size: 0.6rem;
+        text-transform: uppercase;
+    }
+
+    /* Target Temp Overlay */
+    .axis-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.3rem;
+        margin-top: 0.4rem;
+    }
+
+    .axis-btn {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        color: var(--text);
+        padding: 0.4rem 0.2rem;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
+    }
+
+    .axis-btn:hover {
+        border-color: var(--accent);
+        background: var(--accent-10);
+        color: var(--accent);
+    }
+
+    .axis-btn.move-z {
+        border-color: #2fb1ff30;
+    }
+
+    .axis-btn.move-z:hover {
+        background: #2fb1ff15;
+        color: #2fb1ff;
+        border-color: #2fb1ff;
+    }
+
+    .ams-remain-bar {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        background: rgba(0, 0, 0, 0.3);
+        z-index: 1;
+        pointer-events: none;
+        transition: height 0.3s;
+    }
+
+    .tray-empty {
+        background: repeating-linear-gradient(45deg, #222, #222 5px, #282828 5px, #282828 10px) !important;
+        border: 1px dashed #444 !important;
+        opacity: 0.5;
+    }
+
+    .tray-active::after {
+        content: '\f058';
+        font-family: 'Font Awesome 5 Free';
+        font-weight: 900;
+        position: absolute;
+        top: -4px;
+        right: -4px;
+        background: #4caf50;
+        color: white;
+        border-radius: 50%;
+        font-size: 0.6rem;
+        width: 12px;
+        height: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 0 4px rgba(0, 0, 0, 0.3);
+    }
+
+    .target-val {
+        font-size: 0.6rem;
+        opacity: 0.5;
+        font-weight: normal;
+        margin-left: 2px;
+    }
+
+    /* ─── CONTROLS ─── */
+    .pcard-controls {
+        padding: 0.6rem 1rem;
+        border-top: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .ctrl-label {
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--text-3);
+        font-weight: 600;
+    }
+
+    .ctrl-row {
+        display: flex;
+        gap: 0.35rem;
+    }
+
+    .ctrl-btn {
+        flex: 1;
+        padding: 0.6rem 0.25rem;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%);
+        color: var(--text-2);
+        font-size: 0.75rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        font-family: inherit;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        white-space: nowrap;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .ctrl-btn:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: var(--text-1);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        border-color: var(--border-hover);
+    }
+
+    .ctrl-btn:active {
+        transform: translateY(0);
+    }
+
+    .ctrl-btn.c-pause {
+        color: var(--yellow);
+        border-color: rgba(210, 153, 34, 0.3);
+        background: rgba(210, 153, 34, 0.08);
+    }
+
+    .ctrl-btn.c-pause:hover {
+        background: rgba(210, 153, 34, 0.15);
+        border-color: var(--yellow);
+    }
+
+    .ctrl-btn.c-stop {
+        color: var(--red);
+        border-color: rgba(248, 81, 73, 0.3);
+        background: rgba(248, 81, 73, 0.08);
+    }
+
+    .ctrl-btn.c-stop:hover {
+        background: rgba(248, 81, 73, 0.15);
+        border-color: var(--red);
+    }
+
+    .ctrl-btn.c-resume {
+        color: var(--green);
+        border-color: rgba(63, 185, 80, 0.3);
+        background: rgba(63, 185, 80, 0.08);
+    }
+
+    .ctrl-btn.c-resume:hover {
+        background: rgba(63, 185, 80, 0.15);
+        border-color: var(--green);
+    }
+
+    .ctrl-btn.c-home {
+        color: var(--accent);
+        border-color: rgba(68, 147, 248, 0.3);
+        background: rgba(68, 147, 248, 0.08);
+    }
+
+    .ctrl-btn.c-home:hover {
+        background: rgba(68, 147, 248, 0.15);
+        border-color: var(--accent);
+    }
+
+    .ctrl-btn.c-danger {
+        color: var(--red);
+        border: 1px solid transparent;
+        background: transparent;
+        opacity: 0.7;
+    }
+
+    .ctrl-btn.c-danger:hover {
+        background: rgba(248, 81, 73, 0.12);
+        border-color: rgba(248, 81, 73, 0.3);
+        opacity: 1;
+    }
+
+    /* Fan/LED btn-group */
+    .fan-group {
+        display: flex;
+        border-radius: 6px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        background: rgba(0, 0, 0, 0.2);
+    }
+
+    .fan-group button {
+        flex: 1;
+        background: transparent;
+        border: none;
+        border-right: 1px solid var(--border);
+        padding: 5px 2px;
+        font-size: 0.65rem;
+        color: var(--text-2);
+        cursor: pointer;
+        transition: all 0.12s;
+        font-family: inherit;
+    }
+
+    .fan-group button:last-child {
+        border-right: none;
+    }
+
+    .fan-group button:hover {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--text-1);
+    }
+
+    /* ─── CARD FOOTER ─── */
+    .pcard-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 1rem 0.75rem;
+        border-top: 1px solid var(--border);
+        margin-top: auto;
+    }
+
+    .icon-btn {
+        height: 32px;
+        padding: 0 10px;
+        min-width: 32px;
+        border-radius: 8px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--border);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%);
+        color: var(--text-2);
+        cursor: pointer;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        font-size: 0.75rem;
+        font-weight: 600;
+        gap: 8px;
+        white-space: nowrap;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    }
+
+    .icon-btn:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: var(--text-1);
+    }
+
+    .icon-btn.ib-settings {
+        color: var(--accent);
+        border-color: rgba(68, 147, 248, 0.3);
+        background: rgba(68, 147, 248, 0.08);
+    }
+
+    .icon-btn.ib-settings:hover {
+        background: rgba(68, 147, 248, 0.15);
+        border-color: var(--accent);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+
+    .footer-left {
+        display: flex;
+        gap: 0.35rem;
+    }
+
+    /* ─── EMPTY STATE ─── */
+    .empty-state {
+        grid-column: 1 / -1;
+        text-align: center;
+        padding: 5rem 2rem;
+        color: var(--text-2);
+    }
+
+    .empty-icon {
+        width: 72px;
+        height: 72px;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 1.25rem;
+        font-size: 1.75rem;
+        color: var(--text-3);
+    }
+
+    /* ══════════════════════════════════════
+       AMS MATERIALS
+    ══════════════════════════════════════ */
+    .ams-label {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-3);
+        margin: 12px 0 8px 0;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .ams-label::before {
+        content: '';
+        height: 1px;
+        flex: 1;
+        background: var(--border);
+    }
+
+    .ams-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        margin-bottom: 12px;
+    }
+
+    .ams-tray {
+        position: relative;
+        height: 48px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: 4px;
+        transition: transform 0.2s;
+        cursor: help;
+    }
+
+    .ams-tray:hover {
+        transform: scale(1.05);
+        z-index: 10;
+    }
+
+    .tray-active {
+        box-shadow: 0 0 0 2px var(--green);
+        border-color: transparent;
+    }
+
+    .tray-empty {
+        background: repeating-linear-gradient(45deg,
+                rgba(255, 255, 255, 0.02),
+                rgba(255, 255, 255, 0.02) 10px,
+                rgba(255, 255, 255, 0.05) 10px,
+                rgba(255, 255, 255, 0.05) 20px);
+        opacity: 0.4;
+    }
+
+    .ams-remain-bar {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        background: rgba(0, 0, 0, 0.3);
+        transition: height 0.3s ease;
+        z-index: 1;
+    }
+
+    .ams-tray>div {
+        z-index: 2;
+        text-align: center;
+        pointer-events: none;
+    }
+
+    .empty-state h3 {
+        font-size: 1rem;
+        color: var(--text-1);
+        margin-bottom: 0.4rem;
+    }
+
+    .empty-state p {
+        font-size: 0.825rem;
+        margin-bottom: 1.25rem;
+    }
+
+    /* ─── MODAL TABS ─── */
+    .modal-tabs {
+        display: flex;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 1.1rem;
+        gap: 0.1rem;
+    }
+
+    .mtab {
+        padding: 0.45rem 0.9rem;
+        cursor: pointer;
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: var(--text-2);
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1px;
+        transition: all 0.15s;
+        background: none;
+        border-top: none;
+        border-left: none;
+        border-right: none;
+        font-family: inherit;
+    }
+
+    .mtab.active {
+        color: var(--accent);
+        border-bottom-color: var(--accent);
+    }
+
+    .tab-pane {
+        display: none;
+    }
+
+    .tab-pane.active {
+        display: block;
+    }
+
+    /* Raw viewer */
+    .raw-viewer {
+        background: rgba(0, 0, 0, 0.4);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.9rem;
+        font-family: 'Courier New', monospace;
+        font-size: 0.72rem;
+        color: #79c0ff;
+        max-height: 320px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+        line-height: 1.6;
+    }
+
+    /* G-code input */
+    .gcode-input {
+        width: 100%;
+        padding: 0.55rem 0.75rem;
+        border-radius: 7px;
+        border: 1px solid var(--border);
+        background: rgba(0, 0, 0, 0.4);
+        color: var(--green);
+        font-family: 'Courier New', monospace;
+        font-size: 0.875rem;
+        outline: none;
+        margin-bottom: 0.8rem;
+        transition: border-color 0.15s;
+    }
+
+    .gcode-input:focus {
+        border-color: var(--green);
+        box-shadow: 0 0 0 3px rgba(63, 185, 80, 0.1);
+    }
+
+    /* Form row */
+    .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem;
+    }
+
+    @media (max-width: 480px) {
+        .form-row {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    /* Divider */
+    .form-divider {
+        height: 1px;
+        background: var(--border);
+        margin: 0.75rem 0;
+        border: none;
+    }
+</style>
 {% endblock %}
 
 {% block content %}
-<div id="printerGrid" class="printer-grid">
-    <!-- Javascript will inject cards here -->
-</div>
 
-<!-- Add Printer Modal -->
+<div id="printerGrid" class="printer-grid"></div>
+
 <div id="addModal" class="modal">
-    <div class="modal-content">
-        <span class="close-btn" onclick="closeModal()">&times;</span>
-        <h2>Add New Printer</h2>
-        <form id="addForm">
-            <div class="form-group">
-                <label>Name</label>
-                <input type="text" id="pName" required>
+    <div class="modal-content" style="max-width:500px;"><span class="close-btn" onclick="closeAddModal()"
+            title="Close">&times;
+        </span>
+        <h2><span
+                style="width:26px;height:26px;border-radius:6px;background:var(--green-dim);border:1px solid rgba(63,185,80,0.3);display:inline-flex;align-items:center;justify-content:center;color:var(--green);font-size:0.75rem;"><i
+                    class="fas fa-plus"></i></span>New Printer </h2>
+        <form id="addForm" autocomplete="off">
+            <div class="form-row">
+                <div class="form-group"><label>Name</label><input type="text" id="pName" placeholder="My K1 Max"
+                        required></div>
+                <div class="form-group"><label>Type</label><select id="pType" required onchange="toggleAddFields()">
+                        <option value="moonraker">Klipper / Moonraker</option>
+                        <option value="bambu">Bambu Lab</option>
+                        <option value="elegoo">Elegoo (Saturn)</option>
+                    </select></div>
             </div>
-            <div class="form-group">
-                <label>Type</label>
-                <select id="pType" required onchange="toggleFields()">
-                    <option value="moonraker">Klipper / Moonraker</option>
-                    <option value="bambu">Bambu Lab</option>
-                    <option value="elegoo">Elegoo (Saturn Series)</option>
-                </select>
+            <div class="form-group"><label>IP Address</label><input type="text" id="pIp" placeholder="192.168.1.100"
+                    required></div>
+            <div id="addBambuFields" style="display:none;">
+                <hr class="form-divider">
+                <div class="form-row">
+                    <div class="form-group"><label>Serial Number</label><input type="text" id="pSerial"
+                            placeholder="01S00C..."></div>
+                    <div class="form-group"><label>Access Code</label><input type="text" id="pAccess"
+                            placeholder="8-digit code"></div>
+                </div>
             </div>
-            <div class="form-group">
-                <label>IP Address</label>
-                <input type="text" id="pIp" required>
+            <hr class="form-divider">
+            <div class="form-group"><label><i class="fas fa-camera" style="margin-right:4px;opacity:0.5;"></i>Camera
+                    URL <span style="color:var(--text-3);font-weight:400;">(optional)</span></label><input type="text"
+                    id="pCamera" placeholder="http://192.168.1.100:4409/webcam/?action=stream"></div>
+            <div class="form-group"><label><i class="fas fa-sync-alt" style="margin-right:4px;opacity:0.5;"></i>Sync
+                    Frequency</label><select id="pRefresh">
+                    <option value="1000">Every 1 second</option>
+                    <option value="3000">Every 3 seconds</option>
+                    <option value="5000" selected>Every 5 seconds</option>
+                    <option value="10000">Every 10 seconds</option>
+                    <option value="30000">Every 30 seconds</option>
+                </select></div>
+            <div class="form-group" style="display:flex;align-items:center;gap:8px;margin-top:0.5rem;cursor:pointer;">
+                <input type="checkbox" id="pCameraRefresh" style="width:16px;height:16px;margin:0;">
+                <label for="pCameraRefresh" style="margin:0;font-size:0.85rem;cursor:pointer;">Auto-refresh Camera
+                    (Cache buster)</label>
             </div>
-            <div class="form-group" id="serialGroup" style="display:none;">
-                <label>Serial Number</label>
-                <input type="text" id="pSerial">
-            </div>
-            <div class="form-group" id="accessGroup" style="display:none;">
-                <label>Access Code</label>
-                <input type="password" id="pAccess">
-            </div>
-            <div class="actions">
-                <button type="submit" class="btn btn-primary">Save Printer</button>
-                <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-            </div>
+            <div class="actions" style="justify-content:flex-end;"><button type="button" class="btn btn-secondary"
+                    onclick="closeAddModal()">Cancel</button><button type="submit" class="btn btn-primary"><i
+                        class="fas fa-save"></i>Save Printer</button></div>
         </form>
     </div>
 </div>
-{% endblock %}
+
+<div id="editModal" class="modal">
+    <div class="modal-content" style="max-width:540px;"><span class="close-btn" onclick="closeEditModal()"
+            title="Close">&times;
+        </span>
+        <h2><span
+                style="width:26px;height:26px;border-radius:6px;background:var(--accent-dim);border:1px solid rgba(68,147,248,0.3);display:inline-flex;align-items:center;justify-content:center;color:var(--accent);font-size:0.75rem;"><i
+                    class="fas fa-cog"></i></span>Printer Settings </h2>
+        <div class="modal-tabs"><button class="mtab active" id="tabEditBtn"
+                onclick="switchTab('tabEdit','tabEditBtn')"><i class="fas fa-edit" style="margin-right:4px;"></i>Edit
+            </button><button class="mtab" id="tabRawBtn" onclick="switchTab('tabRaw','tabRawBtn');loadRaw()"><i
+                    class="fas fa-code" style="margin-right:4px;"></i>Raw Data </button></div>
+        <!-- Edit Tab -->
+        <div id="tabEdit" class="tab-pane active">
+            <form id="editForm" autocomplete="off"><input type="hidden" id="ePrinterId">
+                <div class="form-row">
+                    <div class="form-group"><label>Name</label><input type="text" id="eName" required></div>
+                    <div class="form-group"><label>Type</label><select id="eType" required
+                            onchange="toggleEditFields()">
+                            <option value="moonraker">Klipper / Moonraker</option>
+                            <option value="bambu">Bambu Lab</option>
+                            <option value="elegoo">Elegoo (Saturn)</option>
+                        </select></div>
+                </div>
+                <div class="form-group"><label>IP Address</label><input type="text" id="eIp" required></div>
+                <div id="editBambuFields" style="display:none;">
+                    <hr class="form-divider">
+                    <div class="form-row">
+                        <div class="form-group"><label>Serial Number</label><input type="text" id="eSerial">
+                        </div>
+                        <div class="form-group"><label>Access Code</label><input type="text" id="eAccess"
+                                placeholder="8-digit code"></div>
+                    </div>
+                </div>
+                <hr class="form-divider">
+                <div class="form-group"><label><i class="fas fa-camera" style="margin-right:4px;opacity:0.5;"></i>Camera
+                        URL</label><input type="text" id="eCameraUrl"
+                        placeholder="http://ip:port/webcam/?action=stream"></div>
+                <div class="form-group"><label><i class="fas fa-sync-alt" style="margin-right:4px;opacity:0.5;"></i>Sync
+                        Frequency</label><select id="eRefresh">
+                        <option value="1000">Every 1 second</option>
+                        <option value="3000">Every 3 seconds</option>
+                        <option value="5000">Every 5 seconds</option>
+                        <option value="10000">Every 10 seconds</option>
+                        <option value="30000">Every 30 seconds</option>
+                    </select></div>
+                <div class="form-group"
+                    style="display:flex;align-items:center;gap:8px;margin-top:0.5rem;cursor:pointer;">
+                    <input type="checkbox" id="eCameraRefresh" style="width:16px;height:16px;margin:0;">
+                    <label for="eCameraRefresh" style="margin:0;font-size:0.85rem;cursor:pointer;">Auto-refresh Camera
+                        (Cache buster)</label>
+                </div>
+                <div class="actions" style="justify-content:space-between;"><button type="button" class="btn btn-danger"
+                        onclick="deletePrinterFromModal()"><i class="fas fa-trash"></i>Delete </button>
+                    <div style="display:flex;gap:0.5rem;"><button type="button" class="btn btn-secondary"
+                            onclick="closeEditModal()">Cancel</button><button type="submit" class="btn btn-primary"><i
+                                class="fas fa-save"></i>Save</button></div>
+                </div>
+            </form>
+        </div>
+        <!-- Raw Tab -->
+        <div id="tabRaw" class="tab-pane">
+            <pre id="rawViewer" class="raw-viewer">Loading...</pre>
+            <div class="actions" style="justify-content:flex-end;"><button class="btn btn-secondary"
+                    onclick="loadRaw()"><i class="fas fa-sync-alt"></i>Refresh </button></div>
+        </div>
+    </div>
+</div>
+
+<div id="gcodeModal" class="modal">
+    <div class="modal-content" style="max-width:400px;"><span class="close-btn" onclick="closeGcodeModal()">&times;
+
+        </span>
+        <h2><span
+                style="width:26px;height:26px;border-radius:6px;background:var(--green-dim);border:1px solid rgba(63,185,80,0.3);display:inline-flex;align-items:center;justify-content:center;color:var(--green);font-size:0.75rem;"><i
+                    class="fas fa-terminal"></i></span>G-Code Terminal </h2>
+        <p style="color:var(--text-2);font-size:0.8rem;margin-bottom:1rem;">Send a G-Code command directly
+            to the printer. </p><input type="hidden" id="gcodeTargetId"><input type="text" class="gcode-input"
+            id="gcodeInput" placeholder="G28 X Y" autocomplete="off">
+        <div class="actions" style="justify-content:flex-end;"><button class="btn btn-secondary"
+                onclick="closeGcodeModal()">Cancel</button><button class="btn btn-primary" onclick="sendGcode()"><i
+                    class="fas fa-paper-plane"></i>Send </button></div>
+    </div>
+</div>{% endblock %}
 
 {% block scripts %}
+
 <script>
-    const modal = document.getElementById('addModal');
 
-    function openModal() { modal.style.display = 'flex'; }
-    function closeModal() { modal.style.display = 'none'; }
+    /* ══════════════════════════════════════
+       SVG ICONS
+    ══════════════════════════════════════ */
+    const SVGS = {
+        bambu: `<svg viewBox="0 0 28 28" fill="none" > <rect x="3" y="7" width="22" height="16" rx="2.5" fill="#0a1a0a" stroke="#2ea043" stroke-width="1.2" /> <rect x="6" y="10" width="16" height="10" rx="1.5" fill="#050e05" stroke="#2ea043" stroke-width="0.8" /> <line x1="14" y1="7" x2="14" y2="3.5" stroke="#2ea043" stroke-width="1.5" stroke-linecap="round" /> <circle cx="14" cy="2.5" r="1.5" fill="#2ea043" /> <rect x="7" y="22" width="3" height="3" rx="0.8" fill="#2ea043" opacity="0.6" /> <rect x="18" y="22" width="3" height="3" rx="0.8" fill="#2ea043" opacity="0.6" /> <path d="M9 15 L14 12 L19 15" stroke="#3fb950" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /> </svg>`,
+        moonraker: `<svg viewBox="0 0 28 28" fill="none" > <rect x="4" y="8" width="20" height="14" rx="2" fill="#1a1200" stroke="#d29922" stroke-width="1.2" /> <rect x="7" y="11" width="14" height="8" rx="1" fill="#0d0900" stroke="#d29922" stroke-width="0.8" /> <line x1="14" y1="8" x2="14" y2="4" stroke="#d29922" stroke-width="1.5" stroke-linecap="round" /> <circle cx="14" cy="3" r="2" fill="#d29922" /> <rect x="5" y="22" width="18" height="2.5" rx="1.2" fill="#d29922" opacity="0.4" /> <path d="M10 16 L14 13.5 L18 16 L18 18 L10 18 Z" fill="#d29922" opacity="0.2" stroke="#d29922" stroke-width="0.8" /> </svg>`,
+        elegoo: `<svg viewBox="0 0 28 28" fill="none" > <rect x="6" y="3" width="16" height="22" rx="2.5" fill="#0a0015" stroke="#8957e5" stroke-width="1.2" /> <rect x="9" y="6" width="10" height="14" rx="1.5" fill="#060010" stroke="#8957e5" stroke-width="0.8" /> <line x1="10" y1="9" x2="18" y2="9" stroke="#8957e5" stroke-width="0.6" opacity="0.5" /> <line x1="10" y1="12" x2="18" y2="12" stroke="#8957e5" stroke-width="0.6" opacity="0.5" /> <line x1="10" y1="15" x2="18" y2="15" stroke="#8957e5" stroke-width="0.6" opacity="0.5" /> <rect x="9" y="22" width="10" height="2" rx="1" fill="#8957e5" opacity="0.5" /> </svg>`
+    };
 
-    function toggleFields() {
-        const type = document.getElementById('pType').value;
-        const serialGroup = document.getElementById('serialGroup');
-        const accessGroup = document.getElementById('accessGroup');
-
-        if (type === 'bambu') {
-            serialGroup.style.display = 'block';
-            accessGroup.style.display = 'block';
-        } else {
-            serialGroup.style.display = 'none';
-            accessGroup.style.display = 'none';
+    const TYPE_META = {
+        bambu: {
+            accent: '#2ea043', label: 'Bambu Lab', pf: 'pf-bambu'
         }
+
+        ,
+        moonraker: {
+            accent: '#d29922', label: 'Klipper/Moonraker', pf: 'pf-moonraker'
+        }
+
+        ,
+        elegoo: {
+            accent: '#8957e5', label: 'Elegoo Resin', pf: 'pf-elegoo'
+        }
+    };
+
+    /* ══════════════════════════════════════
+       HELPERS
+    ══════════════════════════════════════ */
+    function stateOf(p) {
+        if (p.enabled === false || p.state === 'off') return 'offline';
+        const s = (p.state || '').toLowerCase();
+        if (s.includes('run') || s.includes('print')) return 'running';
+        if (s.includes('paus')) return 'paused';
+        if (s.includes('offline') || s.includes('disc')) return 'offline';
+        return 'idle';
+    }
+
+    function badgeCls(sc) {
+        const map = {
+            running: 'sbadge-running',
+            paused: 'sbadge-paused',
+            offline: 'sbadge-offline',
+            idle: 'sbadge-idle'
+        };
+        return map[sc] || 'sbadge-idle';
+    }
+
+    function tempCls(t) {
+        t = parseFloat(t);
+        if (t > 150) return 'c-hot';
+        if (t > 50) return 'c-warm';
+        return 'c-cool';
+    }
+
+    function fmtEta(mins) {
+        if (!mins || mins <= 0) return '--';
+        const h = Math.floor(mins / 60);
+        const m = Math.round(mins % 60);
+        return h > 0 ? `${h}h ${m}m` : `${m}m`;
+    }
+
+    function esc(obj) {
+        return JSON.stringify(obj).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    }
+
+    /* ══════════════════════════════════════
+CARD BUILDER
+══════════════════════════════════════ */
+    function buildCard(p) {
+        const sc = stateOf(p);
+
+        const meta = TYPE_META[p.type] || { accent: '#58a6ff', label: p.type, pf: 'pf-bambu' };
+        const svg = SVGS[p.type] || SVGS.moonraker;
+        const prog = parseFloat(p.progress || 0).toFixed(1);
+        const nozzle = parseFloat(p.temp_nozzle || 0).toFixed(1);
+        const bed = parseFloat(p.temp_bed || 0).toFixed(1);
+        const targetNozzle = p.target_nozzle || 0;
+        const targetBed = p.target_bed || 0;
+        const layer = p.layer || 0;
+        const totalL = p.total_layers || 0;
+        const eta = fmtEta(p.remaining_time);
+        const finishTime = p.finish_time || '--';
+        const enabled = p.enabled !== false;
+        const camUrl = p.camera_url || '';
+        const pJson = esc(p);
+
+        /* Camera */
+        let finalCamUrl = camUrl;
+        if (p.type === 'bambu' && !camUrl && enabled) {
+            finalCamUrl = `/api/camera/${p.id}`;
+        }
+
+        if (finalCamUrl && (p.camera_refresh || p.type === 'bambu')) {
+            finalCamUrl += (finalCamUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
+        }
+
+        const cameraHtml = (finalCamUrl && enabled) ? `
+            <div class="pcard-camera">
+                <img src="${finalCamUrl}" alt="cam" onload="this.style.display='block';this.nextElementSibling.style.display='none'" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+                <div class="cam-offline" style="display:flex;">
+                    <i class="fas fa-video-slash"></i>
+                    <span>Camera offline</span>
+                </div>
+            </div>` : '';
+
+        /* Filename */
+        const fileHtml = p.filename ? ` <div class="pcard-file" ><i class="fas fa-file-code" ></i>${p.filename}
+
+                </div>` : '';
+
+        /* Print action buttons */
+        let printBtns = '';
+
+        if (sc === 'running') {
+            printBtns = ` <button class="ctrl-btn c-pause" onclick="ctrl('${p.id}','pause')" ><i class="fas fa-pause" ></i> Pause</button> <button class="ctrl-btn c-stop" onclick="ctrl('${p.id}','stop')" ><i class="fas fa-stop" ></i> Stop</button>`;
+        }
+
+        else if (sc === 'paused') {
+            printBtns = ` <button class="ctrl-btn c-resume" onclick="ctrl('${p.id}','resume')" ><i class="fas fa-play" ></i> Resume</button> <button class="ctrl-btn c-stop" onclick="ctrl('${p.id}','stop')" ><i class="fas fa-stop" ></i> Stop</button>`;
+        }
+
+        /* Advanced controls */
+        let advHtml = '';
+
+        if (enabled && sc !== 'offline') {
+            if (p.type === 'moonraker') {
+                advHtml = `
+                    <div class="pcard-controls">
+                        <div class="ctrl-label"><i class="fas fa-fan" style="margin-right:4px;"></i>Part Fan</div>
+                        <div class="fan-group">
+                            <button onclick="ctrlV('${p.id}','fan',0)">Off</button>
+                            <button onclick="ctrlV('${p.id}','fan',25)">25%</button>
+                            <button onclick="ctrlV('${p.id}','fan',50)">50%</button>
+                            <button onclick="ctrlV('${p.id}','fan',75)">75%</button>
+                            <button onclick="ctrlV('${p.id}','fan',100)">100%</button>
+                        </div>
+                        
+                        <div class="ctrl-label" style="margin-top:0.4rem;"><i class="fas fa-wind" style="margin-right:4px;"></i>Aux Fan</div>
+                        <div class="fan-group">
+                            <button onclick="ctrlV('${p.id}','fan_aux',0)">Off</button>
+                            <button onclick="ctrlV('${p.id}','fan_aux',50)">50%</button>
+                            <button onclick="ctrlV('${p.id}','fan_aux',100)">100%</button>
+                        </div>
+
+                        <div class="ctrl-label" style="margin-top:0.4rem;"><i class="fas fa-biohazard" style="margin-right:4px;"></i>Chamber Fan</div>
+                        <div class="fan-group">
+                            <button onclick="ctrlV('${p.id}','fan_chamber',0)">Off</button>
+                            <button onclick="ctrlV('${p.id}','fan_chamber',50)">50%</button>
+                            <button onclick="ctrlV('${p.id}','fan_chamber',100)">100%</button>
+                        </div>
+
+                        <div class="ctrl-label" style="margin-top:0.4rem;"><i class="fas fa-lightbulb" style="margin-right:4px;"></i>LED</div>
+                        <div class="fan-group">
+                            <button onclick="ctrlV('${p.id}','led',0)">Off</button>
+                            <button onclick="ctrlV('${p.id}','led',50)">50%</button>
+                            <button onclick="ctrlV('${p.id}','led',100)">100%</button>
+                        </div>
+                        
+                        <div class="ctrl-row" style="margin-top:0.5rem;">
+                            <button class="ctrl-btn c-home" onclick="ctrl('${p.id}','home')"><i class="fas fa-home"></i> Home</button>
+                            <button class="ctrl-btn c-danger" onclick="confirmMotors('${p.id}')"><i class="fas fa-power-off"></i> Motors</button>
+                            <button class="ctrl-btn c-stop" onclick="confirmReboot('${p.id}')"><i class="fas fa-sync-alt"></i> Reboot</button>
+                            <button class="ctrl-btn" onclick="openGcodeModal('${p.id}')"><i class="fas fa-terminal"></i> G-Code</button>
+                        </div>
+                    </div>`;
+            }
+
+            else if (p.type === 'elegoo') {
+                advHtml = ` <div class="pcard-controls" > <div class="ctrl-row" > <button class="ctrl-btn c-pause" onclick="ctrl('${p.id}','pause')" ><i class="fas fa-pause" ></i> Pause</button> <button class="ctrl-btn c-resume" onclick="ctrl('${p.id}','resume')" ><i class="fas fa-play" ></i> Resume</button> <button class="ctrl-btn c-stop" onclick="ctrl('${p.id}','stop')" ><i class="fas fa-stop" ></i> Stop</button> </div> </div>`;
+            }
+
+            else if (p.type === 'bambu') {
+                const sl = p.speed_level || 2;
+                advHtml = `
+                    <div class="pcard-controls">
+                        <div class="ctrl-label"><i class="fas fa-bolt"></i> Modo de Velocidade</div>
+                        <div class="fan-group">
+                            <button class="${sl === 1 ? 'active' : ''}" onclick="ctrlV('${p.id}','speed',1)">Silencioso</button>
+                            <button class="${sl === 2 ? 'active' : ''}" onclick="ctrlV('${p.id}','speed',2)">Padrão</button>
+                            <button class="${sl === 3 ? 'active' : ''}" onclick="ctrlV('${p.id}','speed',3)">Esporte</button>
+                            <button class="${sl === 4 ? 'active' : ''}" onclick="ctrlV('${p.id}','speed',4)">Ludicus</button>
+                        </div>
+                    </div>
+                    
+                    <div class="pcard-controls" style="border-top:none;padding-top:0;">
+                         <div class="ctrl-label"><i class="fas fa-arrows-alt"></i> Movimentação</div>
+                         <div class="axis-grid">
+                            <button class="axis-btn" onclick="ctrlV('${p.id}','move',{axis:'Y',dist:10})"><i class="fas fa-arrow-up"></i>Y+10</button>
+                            <button class="axis-btn" onclick="ctrlV('${p.id}','home',{})"><i class="fas fa-home"></i>Início</button>
+                            <button class="axis-btn move-z" onclick="ctrlV('${p.id}','move',{axis:'Z',dist:10})"><i class="fas fa-chevron-up"></i>Z+10</button>
+                            
+                            <button class="axis-btn" onclick="ctrlV('${p.id}','move',{axis:'Y',dist:-10})"><i class="fas fa-arrow-down"></i>Y-10</button>
+                            <button class="axis-btn" onclick="ctrlV('${p.id}','move',{axis:'X',dist:-10})"><i class="fas fa-arrow-left"></i>X-10</button>
+                            <button class="axis-btn" onclick="ctrlV('${p.id}','move',{axis:'X',dist:10})"><i class="fas fa-arrow-right"></i>X+10</button>
+                         </div>
+                    </div>
+
+                    <div class="pcard-controls" style="border-top:none;padding-top:0;">
+                        <div class="ctrl-label"><i class="fas fa-tools"></i> Manutenção</div>
+                        <div class="fan-group">
+                            <button onclick="ctrlV('${p.id}','extrude',{dist:5})"><i class="fas fa-fill-drip"></i> Extrusar</button>
+                            <button onclick="ctrlV('${p.id}','motors_off',{})"><i class="fas fa-stop-circle"></i> Motores Off</button>
+                            <button onclick="ctrlV('${p.id}','led', ${p.light_state ? 0 : 100})"><i class="fas fa-lightbulb"></i> Luz ${p.light_state ? 'Off' : 'On'}</button>
+                        </div>
+                    </div>`;
+            }
+        }
+
+        /* Print controls row (Bambu / Klipper when printing) */
+        const printCtrlHtml = (printBtns && p.type !== 'elegoo') ? ` <div class="pcard-controls" style="padding-top:0.5rem;border-top:none;" > <div class="ctrl-row" >${printBtns}
+
+                </div> </div>` : '';
+
+        const statsHtml = p.type === 'elegoo' ? `
+            <div class="stat-box">
+                <div class="stat-lbl"><i class="fas fa-layer-group"></i> Layer</div>
+                <div class="stat-val">${totalL > 0 ? `${layer}/${totalL}` : '--'}</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-lbl"><i class="fas fa-history"></i> Last Upd</div>
+                <div class="stat-val" style="font-size:0.7rem;">${new Date(p.last_update * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-lbl"><i class="fas fa-clock"></i> ETA</div>
+                <div class="stat-val">${eta}</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-lbl"><i class="fas fa-flag-checkered"></i> End</div>
+                <div class="stat-val">${finishTime}</div>
+            </div>
+        ` : `
+            <div class="stat-box">
+                <div class="stat-lbl"><i class="fas fa-thermometer-half"></i> Bico</div>
+                <div class="stat-val ${tempCls(nozzle)}">
+                    ${nozzle}°C${targetNozzle > 0 ? `<span class="target-val">/${targetNozzle}</span>` : ''}
+                </div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-lbl"><i class="fas fa-bed"></i> Mesa</div>
+                <div class="stat-val ${tempCls(bed)}">
+                    ${bed}°C${targetBed > 0 ? `<span class="target-val">/${targetBed}</span>` : ''}
+                </div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-lbl"><i class="fas fa-layer-group"></i> Camada</div>
+                <div class="stat-val">${totalL > 0 ? `${layer}/${totalL}` : '--'}</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-lbl"><i class="fas fa-clock"></i> ETA</div>
+                <div class="stat-val">${eta}</div>
+            </div>
+        `;
+
+        return `
+            <div class="pcard t-${p.type} s-${sc} ${enabled ? '' : 'disabled'}">
+                <div class="pcard-stripe"></div>
+                <div class="pcard-header">
+                    <div class="pcard-icon" style="background:${meta.accent}18;border-color:${meta.accent}30;">
+                        ${svg}
+                    </div>
+                    <div class="pcard-meta">
+                        <div class="pcard-name">${p.name}</div>
+                        <div class="pcard-sub">
+                            <i class="fas fa-network-wired" style="opacity:0.4;font-size:0.6rem;"></i>
+                            ${p.ip} · ${meta.label}
+                        </div>
+                    </div>
+                    <div class="pcard-right">
+                        <span class="sbadge ${badgeCls(sc)}">${p.state || 'unknown'}</span>
+                        <label class="ptoggle" title="${enabled ? 'Enabled' : 'Disabled'}">
+                            <input type="checkbox"${enabled ? 'checked' : ''} onchange="togglePrinter('${p.id}')">
+                            <span class="ptoggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                ${cameraHtml}
+                ${fileHtml}
+
+                <div class="pcard-progress">
+                    <div class="prog-labels">
+                        <span>Progresso</span>
+                        <strong>${prog}%</strong>
+                    </div>
+                    <div class="prog-bar">
+                        <div class="prog-fill ${meta.pf}" style="width:${prog}%;"></div>
+                    </div>
+                </div>
+
+                ${p.hms && p.hms.length > 0 ? `
+                    <div class="hms-box">
+                        ${p.hms.map(h => `
+                            <div class="hms-item">
+                                <span><i class="fas fa-exclamation-triangle"></i> HMS ${h.attr.toString(16).toUpperCase()}</span>
+                                <a href="https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/${h.attr.toString(16).padStart(8, '0').toUpperCase()}" target="_blank">WIKI</a>
+                            </div>
+                        `).join('')}
+                    </div>
+                ` : ''}
+
+                ${p.ams && p.ams.length > 0 ? (() => {
+                const units = {};
+                p.ams.forEach(t => {
+                    if (!units[t.ams]) units[t.ams] = { humidity: t.humidity, trays: [] };
+                    units[t.ams].trays.push(t);
+                });
+
+                return Object.keys(units).map(unitId => `
+                        <div class="ams-unit-container" style="margin-bottom:15px;">
+                            <div class="ams-label">
+                                ${parseInt(unitId) === 254 ? 'Carretel Externo' : `AMS ${parseInt(unitId) + 1}`} 
+                                <span style="margin-left:auto; font-size:0.65rem; background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px; color:var(--text-2);">
+                                    ${parseInt(unitId) === 254 ? '' : `<i class="fas fa-tint"></i> Umidade: ${units[unitId].humidity}`}
+                                </span>
+                            </div>
+                            <div class="ams-grid">
+                                ${units[unitId].trays.map(t => {
+                    if (t.empty) return `<div class="ams-tray tray-empty" title="Vazio"></div>`;
+                    let hexColor = t.color || 'FFFFFF';
+                    if (hexColor.startsWith('#')) hexColor = hexColor.substring(1);
+                    const cleanColor = hexColor.substring(0, 6);
+                    const isLight = parseInt(cleanColor, 16) > 0x888888;
+                    const txtCol = isLight ? '#000' : '#fff';
+                    const prog = t.remain >= 0 ? t.remain : 0;
+                    return `
+                                        <div class="ams-tray ${t.active ? 'tray-active' : ''}" 
+                                             style="background:#${cleanColor};" 
+                                             title="${t.brand || ''} ${t.type} (${prog}%)\n${parseInt(unitId) === 254 ? 'Externo' : `AMS ${parseInt(unitId) + 1}, Slot ${t.id + 1}`}">
+                                            <span style="font-size:0.5rem;opacity:0.6;position:absolute;top:1px;left:3px;color:${txtCol}; z-index:3;">${parseInt(unitId) === 254 ? 'E' : t.id + 1}</span>
+                                            <div class="ams-remain-bar" style="height:${100 - prog}%;"></div>
+                                            <div style="position:relative; z-index:2; color:${txtCol}; display:flex; flex-direction:column; line-height:1.1;">
+                                                <span style="font-size:0.5rem;opacity:0.8;">${t.brand || '---'}</span>
+                                                <span style="font-weight:bold;font-size:0.7rem;">${t.type}</span>
+                                            </div>
+                                        </div>`;
+                }).join('')}
+                            </div>
+                        </div>
+                    `).join('');
+            })() : ''}
+
+                <div class="pcard-stats">
+                    ${statsHtml}
+                </div>
+
+                ${printCtrlHtml}
+                ${advHtml}
+
+                <div class="pcard-footer">
+                    <div class="footer-left">
+                        <button class="icon-btn" title="Raw Data" onclick="openRaw('${p.id}')">
+                            <i class="fas fa-code"></i>
+                        </button>
+                    </div>
+                    <button class="icon-btn ib-settings" title="Settings" onclick="openEditModal(${pJson})">
+                        <i class="fas fa-cog"></i> Settings
+                    </button>
+                </div>
+            </div>`;
+
+    }
+
+    /* ══════════════════════════════════════
+FETCH & RENDER
+══════════════════════════════════════ */
+    let lastPrinters = [];
+
+    async function fetchPrinters() {
+        try {
+            const res = await fetch('/api/printers');
+            const printers = await res.json();
+            lastPrinters = printers;
+            const grid = document.getElementById('printerGrid');
+            if (!printers.length) {
+                if (grid.querySelectorAll('.pcard').length === 0) {
+                    grid.innerHTML = `<div class="empty-state"> <div class="empty-icon"><i class="fas fa-print"></i></div> <h3>No printers configured</h3> <p>Add your first printer to get started.</p> <button class="btn btn-primary" onclick="openAddModal()"> <i class="fas fa-plus"></i> Add Printer </button> </div>`;
+                }
+                return;
+            }
+
+            // Remove empty state if present
+            const emptyState = grid.querySelector('.empty-state');
+            if (emptyState) emptyState.remove();
+
+            // Surgical update to avoid resetting streams
+            const currentCards = Array.from(grid.querySelectorAll('.pcard'));
+            const currentIds = currentCards.map(c => c.dataset.id);
+            const newIds = printers.map(p => p.id);
+
+            // Remove deleted
+            currentCards.forEach(card => {
+                if (!newIds.includes(card.dataset.id)) card.remove();
+            });
+
+            // Update or Add
+            printers.forEach((p, idx) => {
+                const cardHtml = buildCard(p);
+                const existingCard = grid.querySelector(`.pcard[data-id="${p.id}"]`);
+
+                if (existingCard) {
+                    const versionStr = JSON.stringify(p);
+                    if (existingCard.dataset.version !== versionStr) {
+                        const oldCam = existingCard.querySelector('.pcard-camera img');
+
+                        // Create temporary container to parse new HTML
+                        const temp = document.createElement('div');
+                        temp.innerHTML = cardHtml;
+                        const newCard = temp.firstElementChild;
+                        const newCam = newCard.querySelector('.pcard-camera img');
+
+                        // If NOT in refresh mode AND same base URL, preserve the old image DOM node
+                        if (!p.camera_refresh && oldCam && newCam && oldCam.getAttribute('src').split('?')[0] === newCam.getAttribute('src').split('?')[0]) {
+                            newCam.replaceWith(oldCam);
+                        }
+
+                        // Update the card in place
+                        existingCard.innerHTML = newCard.innerHTML;
+                        existingCard.className = newCard.className;
+                        existingCard.dataset.version = versionStr;
+                    }
+                } else {
+                    const div = document.createElement('div');
+                    div.innerHTML = cardHtml;
+                    const newCard = div.firstElementChild;
+                    newCard.dataset.id = p.id;
+                    newCard.dataset.version = JSON.stringify(p);
+                    grid.appendChild(newCard);
+                }
+            });
+        }
+
+        catch (e) {
+            console.error('Fetch error:', e);
+        }
+    }
+
+    /* ══════════════════════════════════════
+CONTROLS
+══════════════════════════════════════ */
+    async function ctrl(id, cmd) {
+        await fetch('/api/control', {
+            method: 'POST', headers: {
+                'Content-Type': 'application/json'
+            }
+
+            ,
+            body: JSON.stringify({
+                id, command: cmd
+            })
+        });
+        fetchPrinters();
+    }
+
+    async function ctrlV(id, cmd, val) {
+        await fetch('/api/control', {
+            method: 'POST', headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                id, command: cmd, val
+            })
+        });
+        fetchPrinters();
+    }
+
+    async function togglePrinter(id) {
+        await fetch('/api/toggle_printer', {
+            method: 'POST', headers: {
+                'Content-Type': 'application/json'
+            }
+
+            ,
+            body: JSON.stringify({
+                id
+            })
+        });
+        setTimeout(fetchPrinters, 300);
+    }
+
+    function confirmMotors(id) {
+        if (confirm('Disable motors? The print head can be moved manually after this.')) ctrl(id, 'motors_off');
+    }
+
+    function confirmReboot(id) {
+        if (confirm('Reboot printer host? This will disconnect the gateway temporarily.')) ctrl(id, 'reboot');
+    }
+
+    /* ══════════════════════════════════════
+       G-CODE MODAL
+    ══════════════════════════════════════ */
+    function openGcodeModal(id) {
+        document.getElementById('gcodeTargetId').value = id;
+        document.getElementById('gcodeInput').value = '';
+        document.getElementById('gcodeModal').style.display = 'flex';
+        setTimeout(() => document.getElementById('gcodeInput').focus(), 80);
+    }
+
+    function closeGcodeModal() {
+        document.getElementById('gcodeModal').style.display = 'none';
+    }
+
+    async function sendGcode() {
+        const id = document.getElementById('gcodeTargetId').value;
+        const gcode = document.getElementById('gcodeInput').value.trim();
+        if (!gcode) return;
+
+        await fetch('/api/gcode', {
+            method: 'POST', headers: {
+                'Content-Type': 'application/json'
+            }
+
+            ,
+            body: JSON.stringify({
+                id, gcode
+            })
+        });
+        closeGcodeModal();
+    }
+
+    document.getElementById('gcodeInput').addEventListener('keydown', e => {
+        if (e.key === 'Enter') sendGcode();
+    });
+
+    /* ══════════════════════════════════════
+       ADD MODAL
+    ══════════════════════════════════════ */
+    const addModal = document.getElementById('addModal');
+    const editModal = document.getElementById('editModal');
+
+    function openAddModal() {
+        addModal.style.display = 'flex';
+    }
+
+    function closeAddModal() {
+        addModal.style.display = 'none';
+    }
+
+    function toggleAddFields() {
+        const isBambu = document.getElementById('pType').value === 'bambu';
+        document.getElementById('addBambuFields').style.display = isBambu ? 'block' : 'none';
     }
 
     document.getElementById('addForm').addEventListener('submit', async (e) => {
         e.preventDefault();
+
         const data = {
             name: document.getElementById('pName').value,
             type: document.getElementById('pType').value,
             ip: document.getElementById('pIp').value,
             serial: document.getElementById('pSerial').value,
-            access_code: document.getElementById('pAccess').value
+            access_code: document.getElementById('pAccess').value,
+            camera_url: document.getElementById('pCamera').value,
+            camera_refresh: document.getElementById('pCameraRefresh').checked,
+            refresh_interval: parseInt(document.getElementById('pRefresh').value)
         };
 
         const res = await fetch('/api/add_printer', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: {
+                'Content-Type': 'application/json'
+            }
+
+            ,
             body: JSON.stringify(data)
         });
 
         if (res.ok) {
-            closeModal();
-            fetchPrinters();
-            document.getElementById('addForm').reset();
+            closeAddModal(); document.getElementById('addForm').reset(); fetchPrinters();
         }
     });
 
-    async function fetchPrinters() {
-        const res = await fetch('/api/printers');
-        const printers = await res.json();
-        const grid = document.getElementById('printerGrid');
-        grid.innerHTML = '';
-
-        printers.forEach(p => {
-            const card = document.createElement('div');
-            card.className = 'card';
-
-            let statusClass = 'status-idle';
-            if (p.state.toLowerCase().includes('run') || p.state.toLowerCase().includes('print')) statusClass = 'status-running';
-            else if (p.state.toLowerCase().includes('offline')) statusClass = 'status-offline';
-            else if (p.state.toLowerCase().includes('pause')) statusClass = 'status-paused';
-
-            const progress = p.progress ? p.progress.toFixed(1) : 0;
-            const filename = p.filename || 'No file';
-            const nozzle = p.temp_nozzle || 0;
-            const bed = p.temp_bed || 0;
-
-            card.innerHTML = `
-                <div class="card-header">
-                    <h3>${p.name}</h3>
-                    <span class="status-badge ${statusClass}">${p.state}</span>
-                </div>
-                <div class="stats-grid">
-                    <div class="stat-item"><i class="fas fa-cube"></i> ${p.type}</div>
-                    <div class="stat-item"><i class="fas fa-network-wired"></i> ${p.ip}</div>
-                </div>
-                <div class="stats-grid" style="margin-top: 0.5rem;">
-                    <div class="stat-item"><i class="fas fa-thermometer-half"></i> Nozzle: ${nozzle}°C</div>
-                    <div class="stat-item"><i class="fas fa-bed"></i> Bed: ${bed}°C</div>
-                </div>
-                <div style="margin-top: 0.5rem;">
-                    <div style="display:flex; justify-content:space-between; font-size:0.85rem; color:var(--text-secondary);">
-                        <span>${filename}</span>
-                        <span>${progress}%</span>
-                    </div>
-                    <div class="progress-bar">
-                        <div class="progress-fill" style="width: ${progress}%"></div>
-                    </div>
-                </div>
-                <div class="actions">
-                    ${p.state.toLowerCase().includes('run') ?
-                    `<button class="btn btn-secondary" onclick="control('${p.id}', 'pause')"><i class="fas fa-pause"></i></button>
-                         <button class="btn btn-danger" onclick="control('${p.id}', 'stop')"><i class="fas fa-stop"></i></button>` :
-                    p.state.toLowerCase().includes('pause') ?
-                        `<button class="btn btn-secondary" onclick="control('${p.id}', 'resume')"><i class="fas fa-play"></i></button>
-                         <button class="btn btn-danger" onclick="control('${p.id}', 'stop')"><i class="fas fa-stop"></i></button>` :
-                        `<button class="btn btn-secondary" disabled>Idle</button>`
-                }
-                    <button class="btn btn-danger" style="margin-left:auto;" onclick="deletePrinter('${p.id}')"><i class="fas fa-trash"></i></button>
-                </div>
-            `;
-            grid.appendChild(card);
-        });
+    /* ══════════════════════════════════════
+       EDIT MODAL
+    ══════════════════════════════════════ */
+    function openEditModal(printer, goRaw = false) {
+        document.getElementById('ePrinterId').value = printer.id;
+        document.getElementById('eName').value = printer.name || '';
+        document.getElementById('eIp').value = printer.ip || '';
+        document.getElementById('eSerial').value = printer.serial || '';
+        document.getElementById('eAccess').value = printer.access_code || '';
+        document.getElementById('eCameraUrl').value = printer.camera_url || '';
+        document.getElementById('eCameraRefresh').checked = !!printer.camera_refresh;
+        document.getElementById('eRefresh').value = printer.refresh_interval || 5000;
+        document.getElementById('eType').value = printer.type || 'moonraker';
+        toggleEditFields();
+        switchTab(goRaw ? 'tabRaw' : 'tabEdit', goRaw ? 'tabRawBtn' : 'tabEditBtn');
+        if (goRaw) loadRaw();
+        editModal.style.display = 'flex';
     }
 
-    async function control(id, cmd) {
-        await fetch('/api/control', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id, command: cmd })
-        });
-        fetchPrinters();
+    function closeEditModal() {
+        editModal.style.display = 'none';
     }
 
-    async function deletePrinter(id) {
-        if (!confirm('Are you sure?')) return;
-        await fetch('/api/delete_printer', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id })
-        });
-        fetchPrinters();
+    function toggleEditFields() {
+        const isBambu = document.getElementById('eType').value === 'bambu';
+        document.getElementById('editBambuFields').style.display = isBambu ? 'block' : 'none';
     }
 
-    // Auto refresh
-    setInterval(fetchPrinters, 2000);
+    function switchTab(tabId, btnId) {
+        document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.mtab').forEach(b => b.classList.remove('active'));
+        document.getElementById(tabId).classList.add('active');
+        document.getElementById(btnId).classList.add('active');
+    }
+
+    async function loadRaw() {
+        const id = document.getElementById('ePrinterId').value;
+        if (!id) return;
+        const viewer = document.getElementById('rawViewer');
+        viewer.textContent = 'Loading...';
+
+        try {
+            const res = await fetch(`/api/raw_status/${id}`);
+            const data = await res.json();
+            viewer.textContent = JSON.stringify(data, null, 2);
+        }
+
+        catch (e) {
+            viewer.textContent = 'Error: ' + e.message;
+        }
+    }
+
+    function openRaw(id) {
+        const p = lastPrinters.find(x => x.id === id);
+        if (p) openEditModal(p, true);
+    }
+
+    document.getElementById('editForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const data = {
+            id: document.getElementById('ePrinterId').value,
+            name: document.getElementById('eName').value,
+            type: document.getElementById('eType').value,
+            ip: document.getElementById('eIp').value,
+            serial: document.getElementById('eSerial').value,
+            access_code: document.getElementById('eAccess').value,
+            camera_url: document.getElementById('eCameraUrl').value,
+            camera_refresh: document.getElementById('eCameraRefresh').checked,
+            refresh_interval: parseInt(document.getElementById('eRefresh').value)
+        };
+
+        const res = await fetch('/api/update_printer', {
+            method: 'POST', headers: {
+                'Content-Type': 'application/json'
+            }
+
+            ,
+            body: JSON.stringify(data)
+        });
+
+        if (res.ok) {
+            closeEditModal(); fetchPrinters();
+        }
+    });
+
+    async function deletePrinterFromModal() {
+        const id = document.getElementById('ePrinterId').value;
+        const name = document.getElementById('eName').value;
+        if (!confirm(`Delete "${name}" ? This cannot be undone.`)) return;
+
+        const res = await fetch('/api/delete_printer', {
+            method: 'POST', headers: {
+                'Content-Type': 'application/json'
+            }
+
+            ,
+            body: JSON.stringify({
+                id
+            })
+        });
+
+        if (res.ok) {
+            closeEditModal(); fetchPrinters();
+        }
+    }
+
+    /* ══════════════════════════════════════
+       CLOSE ON BACKDROP
+    ══════════════════════════════════════ */
+    window.addEventListener('click', (e) => {
+        if (e.target === addModal) closeAddModal();
+        if (e.target === editModal) closeEditModal();
+        if (e.target === document.getElementById('gcodeModal')) closeGcodeModal();
+    });
+
+    /* ══════════════════════════════════════
+       AUTO REFRESH
+    ══════════════════════════════════════ */
+    setInterval(fetchPrinters, 3000);
     fetchPrinters();
+
 </script>
 {% endblock %}

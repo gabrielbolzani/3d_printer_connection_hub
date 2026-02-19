@@ -1,0 +1,13 @@
+{
+    "domain": "elegoo_saturn",
+    "name": "Elegoo Saturn 3 Ultra",
+    "documentation": "https://github.com/gabrielbolzani/Elegoo_Saturn_3_ultra_HomeAssistant_Integration",
+    "issue_tracker": "https://github.com/gabrielbolzani/Elegoo_Saturn_3_ultra_HomeAssistant_Integration/issues",
+    "dependencies": [],
+    "codeowners": [
+        "@gabrielbolzani"
+    ],
+    "config_flow": true,
+    "iot_class": "local_polling",
+    "version": "1.0.0"
+}

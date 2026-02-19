@@ -5,6 +5,8 @@ import time
 import queue
 import ssl
 import requests
+import struct
+import select
 import paho.mqtt.client as mqtt
 from datetime import datetime, timedelta
 
@@ -221,6 +223,97 @@ class ElegooPrinter(BasePrinter):
         elif command == 'stop':
             self._send_command("M33")
 
+class BambuCameraThread(threading.Thread):
+    def __init__(self, ip, access_code, callback):
+        super().__init__(daemon=True)
+        self.ip = ip
+        self.access_code = access_code
+        self.callback = callback
+        self._stop_event = threading.Event()
+
+    def stop(self):
+        self._stop_event.set()
+
+    def run(self):
+        self.setName(f"BambuCamera-{self.ip}")
+        print(f"[{self.ip}] Iniciando thread da câmera (Match Exemplo)...")
+        
+        username = 'bblp'
+        port = 6000
+        
+        # Payload de autenticação idêntico ao exemplo
+        auth_data = bytearray()
+        auth_data += struct.pack("<I", 0x40)   
+        auth_data += struct.pack("<I", 0x3000) 
+        auth_data += struct.pack("<I", 0)
+        auth_data += struct.pack("<I", 0)
+        for i in range(0, len(username)):
+            auth_data += struct.pack("<c", username[i].encode('ascii'))
+        for i in range(0, 32 - len(username)):
+            auth_data += struct.pack("<x")
+        for i in range(0, len(self.access_code)):
+            auth_data += struct.pack("<c", self.access_code[i].encode('ascii'))
+        for i in range(0, 32 - len(self.access_code)):
+            auth_data += struct.pack("<x")
+
+        # Contexto SSL - TLS 1.2 é essencial para hardware embarcado da Bambu
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+        ctx.set_ciphers('DEFAULT@SECLEVEL=1:AES128-SHA')
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+
+        jpeg_start = b'\xff\xd8\xff'
+
+        while not self._stop_event.is_set():
+            try:
+                with socket.create_connection((self.ip, port), timeout=5) as sock:
+                    with ctx.wrap_socket(sock, server_hostname=self.ip) as sslSock:
+                        print(f"[{self.ip}] Câmera: Conexão SSL estabelecida.")
+                        sslSock.write(auth_data)
+                        sslSock.setblocking(False)
+                        
+                        img = None
+                        payload_size = 0
+                        
+                        while not self._stop_event.is_set():
+                            try:
+                                dr = sslSock.recv(4096)
+                                if not dr:
+                                    print(f"[{self.ip}] Câmera: Conexão rejeitada (Access Code/IP?).")
+                                    break
+                                    
+                                if img is not None:
+                                    img += dr
+                                    if len(img) >= payload_size:
+                                        # Frame completo - O exemplo valida start magic
+                                        if img.startswith(b'\xff\xd8'):
+                                            self.callback(bytes(img[:payload_size]))
+                                        img = None
+                                        payload_size = 0
+                                        
+                                elif len(dr) == 16:
+                                    # Cabeçalho de 16 bytes detectado
+                                    payload_size = int.from_bytes(dr[0:3], byteorder='little')
+                                    if payload_size > 0:
+                                        img = bytearray()
+                                    else:
+                                        img = None
+                                
+                            except ssl.SSLWantReadError:
+                                if self._stop_event.wait(0.1): break
+                                continue
+                            except Exception as e:
+                                print(f"[{self.ip}] Câmera: Erro no recebimento: {e}")
+                                break
+            except Exception as e:
+                print(f"[{self.ip}] Câmera: Erro de conexão: {e}")
+                if self._stop_event.wait(5): break
+
+    def stop(self):
+        self._stop_event.set()
+        # Não damos join aqui para não travar o loop principal, 
+        # mas a thread é daemon então ok.
+
 # Bambu Lab Implementation - MQTT
 class BambuPrinter(BasePrinter):
     def __init__(self, config):
@@ -230,16 +323,51 @@ class BambuPrinter(BasePrinter):
         self.client = None
         self.connected_flag = False
         self.lock = threading.Lock()
+        self.cam_thread = None
+        self.last_frame = None
+        
+        # New status fields
+        self.status.update({
+            'target_nozzle': 0,
+            'target_bed': 0,
+            'chamber_temp': 0,
+            'fan_part': 0,
+            'fan_aux': 0,
+            'fan_chamber': 0,
+            'ams': [],
+            'hms': [],
+            'speed_level': 2, # Normal
+            'wifi_signal': 0
+        })
 
     def connect(self):
-        if self.client:
-            return
+        if self.client: return
 
         self.client = mqtt.Client(client_id=f"aditiva-{int(time.time())}")
         self.client.username_pw_set("bblp", self.access_code)
         
-        # SSL Context
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+        context.set_ciphers('DEFAULT@SECLEVEL=1:ALL')
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        context.options |= ssl.OP_NO_TLSv1_3
+        self.client.tls_set_context(context)
+        
+        self.client.on_connect = self.on_connect
+        self.client.on_message = self.on_message
+        
+    def connect(self):
+        # Conexão em thread para não travar a inicialização do server
+        thread = threading.Thread(target=self._do_connect, daemon=True)
+        thread.start()
+
+    def _do_connect(self):
+        print(f"[{self.ip}] Conectando ao MQTT e Câmera...")
+        self.client = mqtt.Client(client_id=f"aditiva-{int(time.time())}")
+        self.client.username_pw_set("bblp", self.access_code)
+        
+        context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+        context.set_ciphers('DEFAULT@SECLEVEL=1:AES128-SHA')
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
         self.client.tls_set_context(context)
@@ -248,30 +376,31 @@ class BambuPrinter(BasePrinter):
         self.client.on_message = self.on_message
         
         try:
-            self.client.connect(self.ip, 8883, 60)
+            # timeout menor para evitar travamento longo se offline
+            self.client.connect(self.ip, 8883, 10) 
             self.client.loop_start()
+            
+            if not self.cam_thread:
+                self.cam_thread = BambuCameraThread(self.ip, self.access_code, self.on_frame)
+                self.cam_thread.start()
         except Exception as e:
-            print(f"Bambu connection failed: {e}")
+            print(f"[{self.ip}] Falha na conexão MQTT: {e}")
             self.status['state'] = 'offline'
+
+    def on_frame(self, frame):
+        self.last_frame = frame
 
     def on_connect(self, client, userdata, flags, rc):
         if rc == 0:
             self.connected_flag = True
             topic = f"device/{self.serial}/report"
             client.subscribe(topic)
-            # Subscribe succeeded, request initial push
             self.request_push()
 
     def request_push(self):
         if not self.connected_flag: return
-        msg = {
-            "pushing": {
-                "sequence_id": "0",
-                "command": "pushall"
-            }
-        }
-        topic = f"device/{self.serial}/request"
-        self.client.publish(topic, json.dumps(msg))
+        msg = {"pushing": {"sequence_id": "0", "command": "pushall"}}
+        self.client.publish(f"device/{self.serial}/request", json.dumps(msg))
 
     def on_message(self, client, userdata, msg):
         try:
@@ -283,32 +412,130 @@ class BambuPrinter(BasePrinter):
 
     def parse_bambu_json(self, data):
         with self.lock:
-            # Basic parsing logic based on standard Bambu report
-            print_data = data.get('print', {})
-            if not print_data: return
+            # Pegar dados de print (pode estar no topo ou dentro de data)
+            p = data.get('print', {})
+            
+            # Se 'print' não existe, data pode ser o próprio dicionário de status em alguns casos
+            # Mas geralmente a Bambu manda {"print": {...}} ou {"ams": {...}}
+            
+            if p:
+                if 'gcode_state' in p:
+                    self.status['state'] = p['gcode_state'].lower()
+                if 'mc_percent' in p:
+                    self.status['progress'] = p['mc_percent']
+                if 'mc_remaining_time' in p:
+                    self.status['remaining_time'] = p['mc_remaining_time']
+                    dt = datetime.now() + timedelta(minutes=p['mc_remaining_time'])
+                    self.status['finish_time'] = dt.strftime("%H:%M")
+                if 'nozzle_temper' in p:
+                    self.status['temp_nozzle'] = p['nozzle_temper']
+                if 'nozzle_target_temper' in p:
+                    self.status['target_nozzle'] = p['nozzle_target_temper']
+                if 'bed_temper' in p:
+                    self.status['temp_bed'] = p['bed_temper']
+                if 'bed_target_temper' in p:
+                    self.status['target_bed'] = p['bed_target_temper']
+                if 'chamber_temper' in p:
+                    self.status['chamber_temp'] = p['chamber_temper']
+                if 'subtask_name' in p:
+                    self.status['filename'] = p['subtask_name']
+                if 'cooling_fan_speed' in p:
+                    self.status['fan_part'] = round((int(p['cooling_fan_speed']) / 15.0) * 100)
+                if 'big_fan1_speed' in p:
+                    self.status['fan_aux'] = round((int(p['big_fan1_speed']) / 15.0) * 100)
+                if 'big_fan2_speed' in p:
+                    self.status['fan_chamber'] = round((int(p['big_fan2_speed']) / 15.0) * 100)
+                if 'spd_lvl' in p:
+                    self.status['speed_level'] = p['spd_lvl']
+                if 'wifi_signal' in p:
+                    try:
+                        self.status['wifi_signal'] = int(p['wifi_signal'].replace('dBm', ''))
+                    except: pass
+                if 'hms' in p:
+                    self.status['hms'] = p['hms']
+            # AMS e VT Tray (Carretel Externo)
+            # Podem estar no topo ou dentro de 'print'
+            ams_data = data.get('ams') or p.get('ams', {})
+            vt_data = data.get('vt_tray') or p.get('vt_tray', {})
+            
+            # Determinar ams/tray ativos
+            active_ams = -1
+            active_tray = -1
+            tray_now = ams_data.get('tray_now') or p.get('tray_now')
+            if tray_now is not None:
+                try:
+                    tn = int(tray_now)
+                    if tn == 254: # Externo
+                        active_ams = 254
+                        active_tray = 0
+                    elif tn < 254:
+                        active_ams = tn >> 2
+                        active_tray = tn & 0x03
+                except: pass
+            
+            # Sobrescrever se houver info mais específica no print (comum em Full Report)
+            if 'mc_ams_index' in p: active_ams = p['mc_ams_index']
+            if 'mc_tray_index' in p: active_tray = p['mc_tray_index']
 
-            if 'gcode_state' in print_data:
-                self.status['state'] = print_data['gcode_state']
+            trays = []
             
-            if 'mc_percent' in print_data:
-                self.status['progress'] = print_data['mc_percent']
-            
-            if 'mc_remaining_time' in print_data:
-                self.status['remaining_time'] = print_data['mc_remaining_time']
+            # 1. Processar Unidades AMS
+            for unit in ams_data.get('ams', []):
+                unit_id = int(unit.get('id', 0))
+                humidity = unit.get('humidity', '??')
+                for t in unit.get('tray', []):
+                    tray_id = int(t.get('id', 0))
+                    is_active = (unit_id == active_ams and tray_id == active_tray)
+                    
+                    f_type = t.get('tray_type', '')
+                    f_color = t.get('tray_color', 'FFFFFF')
+                    if not f_color.startswith('#'): f_color = '#' + f_color
+                    f_brand = t.get('tray_sub_brands', '')
+                    f_remain = t.get('remain', -1)
+                    idx = t.get('tray_info_idx', '')
+                    
+                    # Um slot é considerado vazio se não tiver tipo nem idx
+                    is_empty = not f_type and not idx
+                    
+                    trays.append({
+                        'ams': unit_id,
+                        'id': tray_id,
+                        'type': f_type or 'Vazio',
+                        'brand': f_brand,
+                        'color': f_color,
+                        'remain': f_remain,
+                        'humidity': humidity,
+                        'active': is_active,
+                        'empty': is_empty
+                    })
 
-            if 'nozzle_temper' in print_data:
-                self.status['temp_nozzle'] = print_data['nozzle_temper']
-            
-            if 'bed_temper' in print_data:
-                self.status['temp_bed'] = print_data['bed_temper']
-            
-            if 'subtask_name' in print_data:
-                self.status['filename'] = print_data['subtask_name']
+            # 2. Processar VT Tray (Carretel Externo/Lateral)
+            if vt_data:
+                is_active = (active_ams == 254 or active_ams == 255) # 255 as vezes significa externo em alguns modelos
+                f_type = vt_data.get('tray_type', '')
+                f_color = vt_data.get('tray_color', 'FFFFFF')
+                if not f_color.startswith('#'): f_color = '#' + f_color
+                f_remain = vt_data.get('remain', -1)
+                
+                # Só adicionar se não estiver totalmente vazio ou se for o ativo
+                if f_type or is_active:
+                    trays.append({
+                        'ams': 254, # ID reservado para Externo
+                        'id': 0,
+                        'type': f_type or 'Externo',
+                        'brand': vt_data.get('tray_sub_brands', 'Manual'),
+                        'color': f_color,
+                        'remain': f_remain,
+                        'humidity': 'N/A',
+                        'active': is_active,
+                        'empty': not f_type
+                    })
+
+            if trays:
+                self.status['ams'] = trays
 
     def update(self):
-        # Bambu updates via MQTT callback, but we can check connection here
         if not self.connected_flag or (time.time() - self.last_update > 30):
-            # If no update for 30s, try reconnecting or requesting push
             self.request_push()
             if time.time() - self.last_update > 60:
                  self.status['state'] = 'offline'
@@ -326,21 +553,33 @@ class BambuPrinter(BasePrinter):
             msg = {"printing": {"command": "stop", "sequence_id": "0"}}
         elif command == 'led':
             val = int(kwargs.get('val', 0))
-            msg = {
-                "system": {
-                    "sequence_id": "0",
-                    "command": "ledctrl",
-                    "led_node": "chamber_light",
-                    "led_mode": "on" if val > 0 else "off",
-                    "led_on_time": 500,
-                    "led_off_time": 500,
-                    "loop_times": 0,
-                    "interval_time": 0
-                }
-            }
+            msg = {"system": {"sequence_id": "0", "command": "ledctrl", "led_node": "chamber_light", "led_mode": "on" if val > 0 else "off"}}
+        elif command == 'speed':
+            val = int(kwargs.get('val', 2))
+            msg = {"print": {"sequence_id": "0", "command": "speed_level", "param": str(val)}}
+        elif command == 'home':
+            msg = {"print": {"sequence_id": "0", "command": "gcode_line", "param": "G28\n"}}
+        elif command == 'move':
+            axis = kwargs.get('axis', 'X')
+            dist = kwargs.get('dist', 10)
+            msg = {"print": {"sequence_id": "0", "command": "gcode_line", "param": f"G91\nG1 {axis}{dist} F3000\nG90\n"}}
+        elif command == 'extrude':
+            dist = kwargs.get('dist', 5)
+            msg = {"print": {"sequence_id": "0", "command": "gcode_line", "param": f"M83\nG1 E{dist} F300\n"}}
+        elif command == 'motors_off':
+            msg = {"print": {"sequence_id": "0", "command": "gcode_line", "param": "M84\n"}}
         
         if msg:
             self.client.publish(topic, json.dumps(msg))
+
+    def stop(self):
+        if self.client:
+            try:
+                self.client.loop_stop()
+                self.client.disconnect()
+            except: pass
+        if self.cam_thread:
+            self.cam_thread.stop()
 
 def create_printer_from_config(config):
     p_type = config.get('type')

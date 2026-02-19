@@ -1,0 +1,18 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "Configurar Elegoo Saturn 3 Ultra",
+                "description": "Insira o nome e o endereço IP da sua impressora Elegoo Saturn 3 Ultra.",
+                "data": {
+                    "machine_name": "Nome da Máquina",
+                    "ip_address": "Endereço IP"
+                }
+            }
+        },
+        "error": {
+            "cannot_connect": "Não foi possível conectar à impressora",
+            "unknown": "Erro desconhecido"
+        }
+    }
+}

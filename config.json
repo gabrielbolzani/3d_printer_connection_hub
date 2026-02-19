@@ -1,11 +1,13 @@
 [
     {
-        "id": "1771272024",
-        "name": "Teste 1",
-        "type": "bambu",
-        "ip": "192.168.0.2",
+        "id": "1771382059",
+        "name": "K1 Max",
+        "type": "moonraker",
+        "ip": "192.168.0.150:4409",
         "port": 80,
-        "serial": "00M09D4B0301993",
-        "access_code": "26689635"
+        "serial": "",
+        "access_code": "",
+        "camera_url": "http://192.168.0.150:4409/webcam/?action=stream",
+        "refresh_interval": 5000
     }
 ]

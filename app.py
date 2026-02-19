@@ -4,7 +4,10 @@ import time
 import json
 import os
 import psutil
+import signal
+import sys
 from printer_drivers import create_printer_from_config
+from concurrent.futures import ThreadPoolExecutor
 
 app = Flask(__name__)
 
@@ -17,19 +20,33 @@ AUTH_FILE = 'auth_token.json'
 LAST_PROC_IO = None
 LAST_PROC_TIME = None
 APP_START_TIME = time.time()
+executor = ThreadPoolExecutor(max_workers=20)
+KEEP_RUNNING = True
 
 def load_config():
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, 'r') as f:
-                return json.load(f)
-        except:
+    if not os.path.exists(CONFIG_FILE):
+        return []
+    try:
+        with open(CONFIG_FILE, 'r') as f:
+            data = json.load(f)
+            if isinstance(data, list):
+                return data
             return []
-    return []
+    except (json.JSONDecodeError, IOError):
+        # In case of read error (e.g. file being written), return None to indicate failure
+        return None
 
 def save_config(printers_config):
-    with open(CONFIG_FILE, 'w') as f:
-        json.dump(printers_config, f, indent=4)
+    # Use temporary file for atomic write
+    temp_file = CONFIG_FILE + '.tmp'
+    try:
+        with open(temp_file, 'w') as f:
+            json.dump(printers_config, f, indent=4)
+        os.replace(temp_file, CONFIG_FILE)
+    except Exception as e:
+        print(f"Error saving config: {e}")
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
 
 def load_token():
     if os.path.exists(AUTH_FILE):
@@ -45,50 +62,80 @@ def save_token_file(token):
         json.dump({'token': token}, f)
 
 
+def update_printers_once():
+    global PRINTERS
+    current_config = load_config()
+    
+    if current_config is None:
+        return
+
+    config_map = {p['id']: p for p in current_config}
+    
+    # Remove deleted printers
+    for p in PRINTERS:
+        if p.config['id'] not in config_map:
+            try: p.stop()
+            except: pass
+    PRINTERS[:] = [p for p in PRINTERS if p.config['id'] in config_map]
+
+    # Update existing or add new
+    current_ids = [p.config['id'] for p in PRINTERS]
+    
+    for p_conf in current_config:
+        if p_conf['id'] not in current_ids:
+            new_p = create_printer_from_config(p_conf)
+            if new_p:
+                PRINTERS.append(new_p)
+        else:
+            for p in PRINTERS:
+                if p.config['id'] == p_conf['id']:
+                    p.config = p_conf
+                    p.ip = p_conf.get('ip')
+                    break
+
+def update_p(p):
+    try:
+        if not p.config.get('enabled', True):
+            s = p.get_status()
+            s['state'] = 'off'
+            STATUS_CACHE[p.config['id']] = s
+            return
+        p.update()
+        STATUS_CACHE[p.config['id']] = p.get_status()
+    except Exception as e:
+        print(f"Update failed for {p.config.get('name')}: {e}")
+
 def polling_loop():
-    while True:
-        global PRINTERS
-        current_config = load_config()
-        
-        # Check if config changed (naive check: count)
-        # Ideally we should see if new printers added/removed
-        # For simplicity, if count/metadata differs, reload all objects.
-        
-        # Or simply iterate over current objects and update them.
-        # But if user adds a printer via UI, we need to instantiate it.
-        
-        # Better approach for this MVP: 
-        # UI updates config.json.
-        # Polling loop sees config, manages pool of printer objects.
-        
-        # Create map of current config:
-        config_map = {p['id']: p for p in current_config}
-        
-        # Remove deleted printers
-        PRINTERS[:] = [p for p in PRINTERS if p.config['id'] in config_map]
+    while KEEP_RUNNING:
+        try:
+            update_printers_once()
+            if not KEEP_RUNNING: break
+            for p in PRINTERS:
+                if not KEEP_RUNNING: break
+                try:
+                    executor.submit(update_p, p)
+                except RuntimeError: # Se o executor já fechou
+                    break
+            time.sleep(2)
+        except Exception as e:
+            if KEEP_RUNNING:
+                print(f"Error in polling loop: {e}")
+            time.sleep(5)
 
-        # Update existing or add new
-        current_ids = [p.config['id'] for p in PRINTERS]
-        
-        for p_conf in current_config:
-            if p_conf['id'] not in current_ids:
-                # New printer
-                new_p = create_printer_from_config(p_conf)
-                if new_p:
-                    PRINTERS.append(new_p)
-            else:
-                # Update config in case IP changed (requires re-init usually)
-                pass
+def signal_handler(sig, frame):
+    global KEEP_RUNNING
+    print("\n[System] Encerrando serviços (Aguarde)...")
+    KEEP_RUNNING = False
+    try:
+        executor.shutdown(wait=False, cancel_futures=True)
+    except: pass
+    for p in PRINTERS:
+        try: p.stop()
+        except: pass
+    print("[System] Finalizado.")
+    os._exit(0)
 
-        # Poll Status
-        for p in PRINTERS:
-            try:
-                p.update()
-                STATUS_CACHE[p.config['id']] = p.get_status()
-            except Exception as e:
-                print(f"Update failed for {p.config.get('name')}: {e}")
-
-        time.sleep(5)
+signal.signal(signal.SIGINT, signal_handler)
 
 @app.route('/')
 def index():
@@ -184,6 +231,25 @@ def get_token_api():
 def get_printers():
     return jsonify(list(STATUS_CACHE.values()))
 
+@app.route('/api/camera/<printer_id>', methods=['GET'])
+def get_camera_frame(printer_id):
+    printer = next((p for p in PRINTERS if p.config['id'] == printer_id), None)
+    if printer and hasattr(printer, 'last_frame') and printer.last_frame:
+        from flask import Response
+        return Response(printer.last_frame, mimetype='image/jpeg')
+    return jsonify({'error': 'No frame available'}), 404
+
+@app.route('/api/raw_status/<printer_id>', methods=['GET'])
+def raw_status(printer_id):
+    printer = next((p for p in PRINTERS if p.config['id'] == printer_id), None)
+    if printer:
+        return jsonify({
+            'config': printer.config,
+            'status': printer.status,
+            'last_update': printer.last_update
+        })
+    return jsonify({'error': 'Printer not found'}), 404
+
 @app.route('/api/add_printer', methods=['POST'])
 def add_printer():
     data = request.json
@@ -194,19 +260,70 @@ def add_printer():
         'name': data.get('name'),
         'type': data.get('type'),
         'ip': data.get('ip'),
-        'port': int(data.get('port', 80)), # Default HTTP port
+        'port': int(data.get('port', 80)),
         'serial': data.get('serial', ''),
-        'access_code': data.get('access_code', '')
+        'access_code': data.get('access_code', ''),
+        'camera_url': data.get('camera_url', ''),
+        'camera_refresh': data.get('camera_refresh', False),
+        'refresh_interval': int(data.get('refresh_interval', 5000)),
+        'enabled': True
     }
-    
     if new_printer['type'] == 'elegoo':
         new_printer['port'] = 3000
-    
     config.append(new_printer)
     save_config(config)
-    
-    # Trigger immediate reload in polling loop or wait
     return jsonify({"success": True, "id": new_id})
+
+@app.route('/api/update_printer', methods=['POST'])
+def update_printer():
+    data = request.json
+    p_id = data.get('id')
+    config = load_config()
+    for p in config:
+        if p['id'] == p_id:
+            p['name'] = data.get('name', p['name'])
+            p['type'] = data.get('type', p['type'])
+            p['ip'] = data.get('ip', p['ip'])
+            p['serial'] = data.get('serial', p.get('serial', ''))
+            p['camera_url'] = data.get('camera_url', p.get('camera_url', ''))
+            p['camera_refresh'] = data.get('camera_refresh', p.get('camera_refresh', False))
+            p['refresh_interval'] = int(data.get('refresh_interval', p.get('refresh_interval', 5000)))
+            p['access_code'] = data.get('access_code', p.get('access_code', ''))
+            if p['type'] == 'elegoo':
+                p['port'] = 3000
+            else:
+                p['port'] = int(data.get('port', p.get('port', 80)))
+            break
+    save_config(config)
+    global PRINTERS
+    PRINTERS[:] = [pr for pr in PRINTERS if pr.config['id'] != p_id]
+    return jsonify({"success": True})
+
+@app.route('/api/toggle_printer', methods=['POST'])
+def toggle_printer():
+    p_id = request.json.get('id')
+    config = load_config()
+    for p in config:
+        if p['id'] == p_id:
+            p['enabled'] = not p.get('enabled', True)
+            break
+    save_config(config)
+    # Update live object config too
+    for pr in PRINTERS:
+        if pr.config['id'] == p_id:
+            pr.config['enabled'] = not pr.config.get('enabled', True)
+    return jsonify({"success": True})
+
+@app.route('/api/gcode', methods=['POST'])
+def send_gcode():
+    data = request.json
+    p_id = data.get('id')
+    gcode = data.get('gcode', '')
+    printer = next((p for p in PRINTERS if p.config['id'] == p_id), None)
+    if printer and gcode:
+        printer.send_command('gcode', gcode=gcode)
+        return jsonify({"success": True})
+    return jsonify({"success": False, "error": "Printer not found or empty gcode"}), 404
 
 @app.route('/api/delete_printer', methods=['POST'])
 def delete_printer():
@@ -222,17 +339,25 @@ def control_printer():
     data = request.json
     p_id = data.get('id')
     command = data.get('command')
-    
+    val = data.get('val', None)
+
     printer = next((p for p in PRINTERS if p.config['id'] == p_id), None)
     if printer:
-        printer.send_command(command)
+        kwargs = {}
+        if isinstance(val, dict):
+            kwargs = val
+        elif val is not None:
+            kwargs['val'] = val
+        printer.send_command(command, **kwargs)
         return jsonify({"success": True})
     return jsonify({"success": False, "error": "Printer not found"}), 404
 
 if __name__ == '__main__':
-    # Start polling thread
-    t = threading.Thread(target=polling_loop, daemon=True)
-    t.start()
+    # Flask reloader will run this twice. We only want to start threads in the child process.
+    if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+        print("[System] Iniciando serviços de background...")
+        update_printers_once()
+        t = threading.Thread(target=polling_loop, daemon=True, name="PollingLoop")
+        t.start()
     
-    # Run server
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=True)
