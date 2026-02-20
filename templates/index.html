@@ -19,19 +19,26 @@ PRINTER GRID — 3 cols → 2 → 1
 ───────────────────────────────────────── */
     .printer-grid {
         display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 1.5rem;
-        max-width: 1400px;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1rem;
+        max-width: 100%;
         margin: 0 auto;
+        padding: 0 1rem;
     }
 
-    @media (max-width: 1100px) {
+    @media (max-width: 1400px) {
+        .printer-grid {
+            grid-template-columns: repeat(3, 1fr);
+        }
+    }
+
+    @media (max-width: 1000px) {
         .printer-grid {
             grid-template-columns: repeat(2, 1fr);
         }
     }
 
-    @media (max-width: 700px) {
+    @media (max-width: 600px) {
         .printer-grid {
             grid-template-columns: 1fr;
         }
@@ -70,7 +77,21 @@ CARD
     }
 
     .pcard.disabled {
-        opacity: 0.5;
+        opacity: 0.6;
+        filter: grayscale(0.8);
+    }
+
+    .pcard.disabled .pcard-controls,
+    .pcard.disabled .pcard-footer,
+    .pcard.disabled .pcard-camera,
+    .pcard.disabled .stat-box {
+        pointer-events: none;
+        opacity: 0.7;
+    }
+
+    .pcard.disabled .ptoggle {
+        pointer-events: auto;
+        opacity: 1;
     }
 
     /* Accent stripe */
@@ -85,7 +106,7 @@ CARD
     }
 
     .pcard.t-moonraker .pcard-stripe {
-        background: linear-gradient(90deg, #d29922, #f0a500);
+        background: linear-gradient(90deg, #03a9f4, #ff5252);
     }
 
     .pcard.t-elegoo .pcard-stripe {
@@ -140,7 +161,10 @@ CARD
         margin-top: 1px;
         display: flex;
         align-items: center;
-        gap: 4px;
+        gap: 6px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .pcard-right {
@@ -335,17 +359,16 @@ CARD
     .stat-box {
         background: rgba(255, 255, 255, 0.025);
         border: 1px solid var(--border);
-        border-radius: 7px;
-        padding: 0.4rem 0.6rem;
+        border-radius: 6px;
+        padding: 0.3rem 0.4rem;
     }
 
     .stat-lbl {
-        font-size: 0.6rem;
+        font-size: 0.55rem;
         color: var(--text-2);
         text-transform: uppercase;
         letter-spacing: 0.05em;
-        margin-bottom:
-            2px;
+        margin-bottom: 1px;
     }
 
     .stat-val {
@@ -539,12 +562,12 @@ CARD
 
     .ctrl-btn {
         flex: 1;
-        padding: 0.6rem 0.25rem;
+        padding: 0.45rem 0.2rem;
         border: 1px solid var(--border);
-        border-radius: 8px;
+        border-radius: 6px;
         background: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%);
         color: var(--text-2);
-        font-size: 0.75rem;
+        font-size: 0.7rem;
         font-weight: 600;
         cursor: pointer;
         transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -961,15 +984,14 @@ CARD
                     <option value="5000" selected>Every 5 seconds</option>
                     <option value="10000">Every 10 seconds</option>
                     <option value="30000">Every 30 seconds</option>
-                </select></div>
-            <div class="form-group" style="display:flex;align-items:center;gap:8px;margin-top:0.5rem;cursor:pointer;">
-                <input type="checkbox" id="pCameraRefresh" style="width:16px;height:16px;margin:0;">
-                <label for="pCameraRefresh" style="margin:0;font-size:0.85rem;cursor:pointer;">Auto-refresh Camera
-                    (Cache buster)</label>
-            </div>
-            <div class="actions" style="justify-content:flex-end;"><button type="button" class="btn btn-secondary"
-                    onclick="closeAddModal()">Cancel</button><button type="submit" class="btn btn-primary"><i
-                        class="fas fa-save"></i>Save Printer</button></div>
+                    <hr class="form-divider">
+                    <div class="form-group"><label><i class="fas fa-key"
+                                style="margin-right:4px;opacity:0.5;"></i>Platform
+                            Token <span style="color:var(--text-3);font-weight:400;">(optional)</span></label><input
+                            type="password" id="pPlatformToken" placeholder="Enter token..."></div>
+                    <div class="actions" style="justify-content:flex-end;"><button type="button"
+                            class="btn btn-secondary" onclick="closeAddModal()">Cancel</button><button type="submit"
+                            class="btn btn-primary"><i class="fas fa-save"></i>Save Printer</button></div>
         </form>
     </div>
 </div>
@@ -1019,27 +1041,25 @@ CARD
                         <option value="10000">Every 10 seconds</option>
                         <option value="30000">Every 30 seconds</option>
                     </select></div>
-                <div class="form-group"
-                    style="display:flex;align-items:center;gap:8px;margin-top:0.5rem;cursor:pointer;">
-                    <input type="checkbox" id="eCameraRefresh" style="width:16px;height:16px;margin:0;">
-                    <label for="eCameraRefresh" style="margin:0;font-size:0.85rem;cursor:pointer;">Auto-refresh Camera
-                        (Cache buster)</label>
-                </div>
-                <div class="actions" style="justify-content:space-between;"><button type="button" class="btn btn-danger"
-                        onclick="deletePrinterFromModal()"><i class="fas fa-trash"></i>Delete </button>
-                    <div style="display:flex;gap:0.5rem;"><button type="button" class="btn btn-secondary"
-                            onclick="closeEditModal()">Cancel</button><button type="submit" class="btn btn-primary"><i
-                                class="fas fa-save"></i>Save</button></div>
-                </div>
-            </form>
         </div>
-        <!-- Raw Tab -->
-        <div id="tabRaw" class="tab-pane">
-            <pre id="rawViewer" class="raw-viewer">Loading...</pre>
-            <div class="actions" style="justify-content:flex-end;"><button class="btn btn-secondary"
-                    onclick="loadRaw()"><i class="fas fa-sync-alt"></i>Refresh </button></div>
+        <hr class="form-divider">
+        <div class="form-group"><label><i class="fas fa-key" style="margin-right:4px;opacity:0.5;"></i>Platform
+                Token</label><input type="password" id="ePlatformToken" placeholder="Enter token..."></div>
+        <div class="actions" style="justify-content:space-between;"><button type="button" class="btn btn-danger"
+                onclick="deletePrinterFromModal()"><i class="fas fa-trash"></i>Delete </button>
+            <div style="display:flex;gap:0.5rem;"><button type="button" class="btn btn-secondary"
+                    onclick="closeEditModal()">Cancel</button><button type="submit" class="btn btn-primary"><i
+                        class="fas fa-save"></i>Save</button></div>
         </div>
+        </form>
     </div>
+    <!-- Raw Tab -->
+    <div id="tabRaw" class="tab-pane">
+        <pre id="rawViewer" class="raw-viewer">Loading...</pre>
+        <div class="actions" style="justify-content:flex-end;"><button class="btn btn-secondary" onclick="loadRaw()"><i
+                    class="fas fa-sync-alt"></i>Refresh </button></div>
+    </div>
+</div>
 </div>
 
 <div id="gcodeModal" class="modal">
@@ -1067,7 +1087,7 @@ CARD
     ══════════════════════════════════════ */
     const SVGS = {
         bambu: `<svg viewBox="0 0 28 28" fill="none" > <rect x="3" y="7" width="22" height="16" rx="2.5" fill="#0a1a0a" stroke="#2ea043" stroke-width="1.2" /> <rect x="6" y="10" width="16" height="10" rx="1.5" fill="#050e05" stroke="#2ea043" stroke-width="0.8" /> <line x1="14" y1="7" x2="14" y2="3.5" stroke="#2ea043" stroke-width="1.5" stroke-linecap="round" /> <circle cx="14" cy="2.5" r="1.5" fill="#2ea043" /> <rect x="7" y="22" width="3" height="3" rx="0.8" fill="#2ea043" opacity="0.6" /> <rect x="18" y="22" width="3" height="3" rx="0.8" fill="#2ea043" opacity="0.6" /> <path d="M9 15 L14 12 L19 15" stroke="#3fb950" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /> </svg>`,
-        moonraker: `<svg viewBox="0 0 28 28" fill="none" > <rect x="4" y="8" width="20" height="14" rx="2" fill="#1a1200" stroke="#d29922" stroke-width="1.2" /> <rect x="7" y="11" width="14" height="8" rx="1" fill="#0d0900" stroke="#d29922" stroke-width="0.8" /> <line x1="14" y1="8" x2="14" y2="4" stroke="#d29922" stroke-width="1.5" stroke-linecap="round" /> <circle cx="14" cy="3" r="2" fill="#d29922" /> <rect x="5" y="22" width="18" height="2.5" rx="1.2" fill="#d29922" opacity="0.4" /> <path d="M10 16 L14 13.5 L18 16 L18 18 L10 18 Z" fill="#d29922" opacity="0.2" stroke="#d29922" stroke-width="0.8" /> </svg>`,
+        moonraker: `<svg viewBox="0 0 28 28" fill="none" > <rect x="4" y="8" width="20" height="14" rx="2" fill="#00151a" stroke="#03a9f4" stroke-width="1.2" /> <rect x="7" y="11" width="14" height="8" rx="1" fill="#00090d" stroke="#03a9f4" stroke-width="0.8" /> <line x1="14" y1="8" x2="14" y2="4" stroke="#03a9f4" stroke-width="1.5" stroke-linecap="round" /> <circle cx="14" cy="3" r="2" fill="#03a9f4" /> <rect x="5" y="22" width="18" height="2.5" rx="1.2" fill="#03a9f4" opacity="0.4" /> <path d="M10 16 L14 13.5 L18 16 L18 18 L10 18 Z" fill="#03a9f4" opacity="0.2" stroke="#03a9f4" stroke-width="0.8" /> </svg>`,
         elegoo: `<svg viewBox="0 0 28 28" fill="none" > <rect x="6" y="3" width="16" height="22" rx="2.5" fill="#0a0015" stroke="#8957e5" stroke-width="1.2" /> <rect x="9" y="6" width="10" height="14" rx="1.5" fill="#060010" stroke="#8957e5" stroke-width="0.8" /> <line x1="10" y1="9" x2="18" y2="9" stroke="#8957e5" stroke-width="0.6" opacity="0.5" /> <line x1="10" y1="12" x2="18" y2="12" stroke="#8957e5" stroke-width="0.6" opacity="0.5" /> <line x1="10" y1="15" x2="18" y2="15" stroke="#8957e5" stroke-width="0.6" opacity="0.5" /> <rect x="9" y="22" width="10" height="2" rx="1" fill="#8957e5" opacity="0.5" /> </svg>`
     };
 
@@ -1078,7 +1098,7 @@ CARD
 
         ,
         moonraker: {
-            accent: '#d29922', label: 'Klipper/Moonraker', pf: 'pf-moonraker'
+            accent: '#03a9f4', label: 'Klipper/Moonraker', pf: 'pf-moonraker'
         }
 
         ,
@@ -1125,6 +1145,40 @@ CARD
 
     function esc(obj) {
         return JSON.stringify(obj).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    }
+
+    function timeSince(ts) {
+        if (!ts || ts === 0) return '';
+        const sec = Math.floor(Date.now() / 1000 - ts);
+        if (sec < 2) return '<span class="time-since-label" style="color:var(--green); font-weight:bold; opacity:0.9; margin-left:6px;">[agora]</span>';
+        if (sec < 60) return `<span class="time-since-label" style="opacity:0.6; margin-left:6px;">[${sec}s]</span>`;
+        const mins = Math.floor(sec / 60);
+        return `<span class="time-since-label" style="opacity:0.5; margin-left:6px;">[${mins}m]</span>`;
+    }
+
+    function updateLocalTimers() {
+        document.querySelectorAll('.pcard').forEach(card => {
+            const ts = parseInt(card.dataset.lastUpdate);
+            const label = card.querySelector('.time-since-label');
+            if (!ts || !label) return;
+
+            const sec = Math.floor(Date.now() / 1000 - ts);
+            if (sec < 2) {
+                label.innerHTML = '[agora]';
+                label.style.color = 'var(--green)';
+                label.style.fontWeight = 'bold';
+                label.style.opacity = '0.9';
+            } else if (sec < 60) {
+                label.innerHTML = `[${sec}s]`;
+                label.style.color = '';
+                label.style.fontWeight = '';
+                label.style.opacity = '0.6';
+            } else {
+                const mins = Math.floor(sec / 60);
+                label.innerHTML = `[${mins}m]`;
+                label.style.opacity = '0.5';
+            }
+        });
     }
 
     /* ══════════════════════════════════════
@@ -1316,14 +1370,14 @@ CARD BUILDER
         `;
 
         return `
-            <div class="pcard t-${p.type} s-${sc} ${enabled ? '' : 'disabled'}">
+            <div class="pcard t-${p.type} s-${sc} ${enabled ? '' : 'disabled'}" data-last-update="${p.last_update}">
                 <div class="pcard-stripe"></div>
                 <div class="pcard-header">
                     <div class="pcard-icon" style="background:${meta.accent}18;border-color:${meta.accent}30;">
                         ${svg}
                     </div>
                     <div class="pcard-meta">
-                        <div class="pcard-name">${p.name}</div>
+                        <div class="pcard-name">${p.name} ${timeSince(p.last_update)}</div>
                         <div class="pcard-sub">
                             <i class="fas fa-network-wired" style="opacity:0.4;font-size:0.6rem;"></i>
                             ${p.ip} · ${meta.label}
@@ -1412,6 +1466,12 @@ CARD BUILDER
 
                 <div class="pcard-footer">
                     <div class="footer-left">
+                        <button class="icon-btn" title="Mover para Esquerda" onclick="reorder('${p.id}', 'up')">
+                            <i class="fas fa-chevron-left"></i>
+                        </button>
+                        <button class="icon-btn" title="Mover para Direita" onclick="reorder('${p.id}', 'down')">
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
                         <button class="icon-btn" title="Raw Data" onclick="openRaw('${p.id}')">
                             <i class="fas fa-code"></i>
                         </button>
@@ -1459,28 +1519,30 @@ FETCH & RENDER
             // Update or Add
             printers.forEach((p, idx) => {
                 const cardHtml = buildCard(p);
-                const existingCard = grid.querySelector(`.pcard[data-id="${p.id}"]`);
+                let existingCard = grid.querySelector(`.pcard[data-id="${p.id}"]`);
 
                 if (existingCard) {
                     const versionStr = JSON.stringify(p);
                     if (existingCard.dataset.version !== versionStr) {
                         const oldCam = existingCard.querySelector('.pcard-camera img');
-
-                        // Create temporary container to parse new HTML
                         const temp = document.createElement('div');
                         temp.innerHTML = cardHtml;
                         const newCard = temp.firstElementChild;
                         const newCam = newCard.querySelector('.pcard-camera img');
 
-                        // If NOT in refresh mode AND same base URL, preserve the old image DOM node
                         if (!p.camera_refresh && oldCam && newCam && oldCam.getAttribute('src').split('?')[0] === newCam.getAttribute('src').split('?')[0]) {
                             newCam.replaceWith(oldCam);
                         }
 
-                        // Update the card in place
                         existingCard.innerHTML = newCard.innerHTML;
                         existingCard.className = newCard.className;
                         existingCard.dataset.version = versionStr;
+                        existingCard.dataset.lastUpdate = p.last_update;
+                    }
+
+                    // Always ensure order is correct by moving existing card
+                    if (grid.children[idx] !== existingCard) {
+                        grid.insertBefore(existingCard, grid.children[idx]);
                     }
                 } else {
                     const div = document.createElement('div');
@@ -1488,7 +1550,7 @@ FETCH & RENDER
                     const newCard = div.firstElementChild;
                     newCard.dataset.id = p.id;
                     newCard.dataset.version = JSON.stringify(p);
-                    grid.appendChild(newCard);
+                    grid.insertBefore(newCard, grid.children[idx] || null);
                 }
             });
         }
@@ -1501,6 +1563,14 @@ FETCH & RENDER
     /* ══════════════════════════════════════
 CONTROLS
 ══════════════════════════════════════ */
+    async function reorder(id, direction) {
+        await fetch('/api/reorder_printers', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, direction })
+        });
+        fetchPrinters();
+    }
+
     async function ctrl(id, cmd) {
         await fetch('/api/control', {
             method: 'POST', headers: {
@@ -1614,8 +1684,8 @@ CONTROLS
             serial: document.getElementById('pSerial').value,
             access_code: document.getElementById('pAccess').value,
             camera_url: document.getElementById('pCamera').value,
-            camera_refresh: document.getElementById('pCameraRefresh').checked,
-            refresh_interval: parseInt(document.getElementById('pRefresh').value)
+            refresh_interval: parseInt(document.getElementById('pRefresh').value),
+            platform_token: document.getElementById('pPlatformToken').value
         };
 
         const res = await fetch('/api/add_printer', {
@@ -1642,8 +1712,8 @@ CONTROLS
         document.getElementById('eSerial').value = printer.serial || '';
         document.getElementById('eAccess').value = printer.access_code || '';
         document.getElementById('eCameraUrl').value = printer.camera_url || '';
-        document.getElementById('eCameraRefresh').checked = !!printer.camera_refresh;
         document.getElementById('eRefresh').value = printer.refresh_interval || 5000;
+        document.getElementById('ePlatformToken').value = printer.platform_token || '';
         document.getElementById('eType').value = printer.type || 'moonraker';
         toggleEditFields();
         switchTab(goRaw ? 'tabRaw' : 'tabEdit', goRaw ? 'tabRawBtn' : 'tabEditBtn');
@@ -1700,8 +1770,8 @@ CONTROLS
             serial: document.getElementById('eSerial').value,
             access_code: document.getElementById('eAccess').value,
             camera_url: document.getElementById('eCameraUrl').value,
-            camera_refresh: document.getElementById('eCameraRefresh').checked,
-            refresh_interval: parseInt(document.getElementById('eRefresh').value)
+            refresh_interval: parseInt(document.getElementById('eRefresh').value),
+            platform_token: document.getElementById('ePlatformToken').value
         };
 
         const res = await fetch('/api/update_printer', {
@@ -1752,6 +1822,7 @@ CONTROLS
        AUTO REFRESH
     ══════════════════════════════════════ */
     setInterval(fetchPrinters, 3000);
+    setInterval(updateLocalTimers, 500);
     fetchPrinters();
 
 </script>

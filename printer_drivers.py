@@ -9,6 +9,7 @@ import struct
 import select
 import paho.mqtt.client as mqtt
 from datetime import datetime, timedelta
+from logger_config import log_info, log_error, log_debug, log_warn
 
 # Base Printer Class
 class BasePrinter:
@@ -36,7 +37,35 @@ class BasePrinter:
     def update(self):
         pass
 
+    def _reset_status(self):
+        """Limpa os dados dinâmicos da impressora."""
+        self.status.update({
+            'state': 'off',
+            'temp_nozzle': 0,
+            'temp_bed': 0,
+            'progress': 0,
+            'filename': '',
+            'remaining_time': 0,
+            'layer': 0,
+            'total_layers': 0,
+            'finish_time': '--',
+            'target_nozzle': 0,
+            'target_bed': 0,
+            'chamber_temp': 0,
+            'fan_part': 0,
+            'fan_aux': 0,
+            'fan_chamber': 0,
+            'ams': [],
+            'hms': [],
+            'wifi_signal': 0
+        })
+        self.last_frame = None
+
     def send_command(self, command, **kwargs):
+        pass
+
+    def stop(self):
+        """Para todos os serviços e threads da impressora."""
         pass
 
     def get_status(self):
@@ -59,14 +88,16 @@ class MoonrakerPrinter(BasePrinter):
     def update(self):
         try:
             url = f"http://{self.ip}/printer/objects/query?print_stats&extruder&heater_bed&display_status&fan&toolhead&temperature_sensor%20mcu_temp&temperature_sensor%20chamber_temp&system_stats"
-            response = requests.get(url, timeout=2)
+            response = requests.get(url, timeout=3)
             if response.status_code == 200:
                 data = response.json()
                 res = data.get('result', {}).get('status', {})
                 
                 # Update status
                 if 'print_stats' in res:
-                    self.status['state'] = res['print_stats'].get('state', 'unknown')
+                    state = res['print_stats'].get('state', 'unknown')
+                    # Map 'standby' to 'idle' for UI consistency
+                    self.status['state'] = 'idle' if state == 'standby' else state
                     self.status['filename'] = res['print_stats'].get('filename', '')
                     self.status['print_duration'] = res['print_stats'].get('print_duration', 0)
                 
@@ -83,8 +114,10 @@ class MoonrakerPrinter(BasePrinter):
                 
                 self.last_update = time.time()
                 return True
+            else:
+                self.status['state'] = 'offline'
         except Exception as e:
-            # print(f"Moonraker update failed for {self.ip}: {e}")
+            log_debug(f"Moonraker update failed for {self.ip}: {e}")
             self.status['state'] = 'offline'
         return False
 
@@ -113,7 +146,7 @@ class MoonrakerPrinter(BasePrinter):
                 fval = val / 100.0
                 # Try both M106 and SET_PIN for compatibility with different K1/Klipper setups
                 requests.post(f"http://{self.ip}/printer/gcode/script",
-                    json={'script': f'M106 S{pwm}'}, timeout=3)
+                    json={'script': f'M106 P0 S{pwm}'}, timeout=3)
                 requests.post(f"http://{self.ip}/printer/gcode/script",
                     json={'script': f'SET_PIN PIN=fan0 VALUE={fval:.2f}'}, timeout=3)
             elif command == 'led':
@@ -128,20 +161,61 @@ class MoonrakerPrinter(BasePrinter):
                 # K1 Max specific often uses caselight pin
                 requests.post(f"http://{self.ip}/printer/gcode/script",
                     json={'script': f'SET_PIN PIN=caselight VALUE={fval:.2f}'}, timeout=3)
+
             elif command == 'fan_aux':
                 val = int(kwargs.get('val', 0))
+                pwm = int(val / 100 * 255)
                 fval = val / 100.0
+                # K1 Max Aux Fan is usually M106 P2
+                requests.post(f"http://{self.ip}/printer/gcode/script",
+                    json={'script': f'M106 P2 S{pwm}'}, timeout=3)
                 requests.post(f"http://{self.ip}/printer/gcode/script",
                     json={'script': f'SET_PIN PIN=fan1 VALUE={fval:.2f}'}, timeout=3)
             elif command == 'fan_chamber':
                 val = int(kwargs.get('val', 0))
+                pwm = int(val / 100 * 255)
                 fval = val / 100.0
+                # K1 Max Chamber Fan is usually M106 P3
+                requests.post(f"http://{self.ip}/printer/gcode/script",
+                    json={'script': f'M106 P3 S{pwm}'}, timeout=3)
                 requests.post(f"http://{self.ip}/printer/gcode/script",
                     json={'script': f'SET_PIN PIN=fan2 VALUE={fval:.2f}'}, timeout=3)
             elif command == 'reboot':
                 requests.post(f"http://{self.ip}/machine/reboot", timeout=3)
         except Exception as e:
-            print(f"Moonraker command error: {e}")
+            log_error(f"Moonraker command error: {e}")
+
+    def get_snapshot(self):
+        try:
+            # Try to determine snapshot URL
+            base_ip = self.ip.split(':')[0]
+            # If camera_url is in config, use it but replace action=stream with action=snapshot
+            cam_url = self.config.get('camera_url', '')
+            
+            snap_url = ""
+            if 'action=stream' in cam_url:
+                snap_url = cam_url.replace('action=stream', 'action=snapshot')
+            elif cam_url:
+                # If explicit URL but not mjpg-streamer standard, try as is (unlikely for stream link)
+                snap_url = cam_url
+            else:
+                # Default guess for K1/Moonraker
+                # K1 usually on port 4409 for camera? Config says ip:4409
+                if ':' in self.ip:
+                    snap_url = f"http://{self.ip}/webcam/?action=snapshot"
+                else:
+                    snap_url = f"http://{self.ip}:4409/webcam/?action=snapshot"
+
+            resp = requests.get(snap_url, timeout=2)
+            if resp.status_code == 200:
+                return resp.content
+        except Exception as e:
+            # log_debug(f"Snapshot failed: {e}")
+            pass
+        return None
+
+    def stop(self):
+        self._reset_status()
 
 # Elegoo (Saturn 3 Ultra) Implementation - UDP
 class ElegooPrinter(BasePrinter):
@@ -153,20 +227,23 @@ class ElegooPrinter(BasePrinter):
         self.status.pop('temp_bed', None)
 
     def _send_command(self, message):
+        sock = None
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.settimeout(2)
+            sock.settimeout(1.5) # Aumentar ligeiramente
             sock.sendto(message.encode(), (self.ip, self.port))
             data, _ = sock.recvfrom(4096)
             return json.loads(data.decode())
+        except socket.timeout:
+            # log_debug(f"Elegoo timeout: {self.ip}")
+            return None
         except Exception as e:
-            # print(f"Elegoo error: {e}")
+            log_debug(f"Elegoo error: {e}")
             return None
         finally:
-            try:
-                sock.close()
-            except:
-                pass
+            if sock:
+                try: sock.close()
+                except: pass
 
     def update(self):
         data = self._send_command("M99999")
@@ -223,6 +300,9 @@ class ElegooPrinter(BasePrinter):
         elif command == 'stop':
             self._send_command("M33")
 
+    def stop(self):
+        self._reset_status()
+
 class BambuCameraThread(threading.Thread):
     def __init__(self, ip, access_code, callback):
         super().__init__(daemon=True)
@@ -241,72 +321,88 @@ class BambuCameraThread(threading.Thread):
         username = 'bblp'
         port = 6000
         
-        # Payload de autenticação idêntico ao exemplo
+        # Payload de autenticação - Montagem byte a byte idêntica ao exemplo funcional
         auth_data = bytearray()
-        auth_data += struct.pack("<I", 0x40)   
-        auth_data += struct.pack("<I", 0x3000) 
-        auth_data += struct.pack("<I", 0)
-        auth_data += struct.pack("<I", 0)
-        for i in range(0, len(username)):
+        auth_data += struct.pack("<I", 0x40)   # Magic @
+        auth_data += struct.pack("<I", 0x3000) # Type
+        auth_data += struct.pack("<I", 0)      # Seq
+        auth_data += struct.pack("<I", 64)     # Length (32 user + 32 pass)
+        
+        # Username (32 bytes)
+        for i in range(len(username)):
             auth_data += struct.pack("<c", username[i].encode('ascii'))
-        for i in range(0, 32 - len(username)):
+        for i in range(32 - len(username)):
             auth_data += struct.pack("<x")
-        for i in range(0, len(self.access_code)):
+            
+        # Access Code (32 bytes) - Respeita o case fornecido pelo usuário
+        for i in range(len(self.access_code)):
             auth_data += struct.pack("<c", self.access_code[i].encode('ascii'))
-        for i in range(0, 32 - len(self.access_code)):
+        for i in range(32 - len(self.access_code)):
             auth_data += struct.pack("<x")
 
-        # Contexto SSL - TLS 1.2 é essencial para hardware embarcado da Bambu
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-        ctx.set_ciphers('DEFAULT@SECLEVEL=1:AES128-SHA')
+        # Contexto SSL - Refinado para X1C
+        ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-
-        jpeg_start = b'\xff\xd8\xff'
+        ctx.set_ciphers('DEFAULT@SECLEVEL=1:AES128-SHA')
+        # Desabilita protocolos inseguros mas mantém TLS 1.2
+        ctx.options |= ssl.OP_NO_SSLv2 | ssl.OP_NO_SSLv3 | ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1
 
         while not self._stop_event.is_set():
             try:
-                with socket.create_connection((self.ip, port), timeout=5) as sock:
-                    with ctx.wrap_socket(sock, server_hostname=self.ip) as sslSock:
-                        print(f"[{self.ip}] Câmera: Conexão SSL estabelecida.")
-                        sslSock.write(auth_data)
-                        sslSock.setblocking(False)
-                        
-                        img = None
-                        payload_size = 0
-                        
-                        while not self._stop_event.is_set():
+                # Usar socket puro para ter controle total do timeout antes do wrap
+                sock = socket.create_connection((self.ip, port), timeout=5)
+                with ctx.wrap_socket(sock, server_hostname=self.ip) as sslSock:
+                    log_debug(f"[{self.ip}] Câmera: Conexão SSL estabelecida.")
+                    
+                    # Atraso crucial para a X1C processar o handshake antes do auth
+                    time.sleep(0.5)
+                    sslSock.sendall(auth_data)
+                    
+                    buffer = bytearray()
+                    sslSock.setblocking(False)
+                    
+                    while not self._stop_event.is_set():
+                        try:
+                            # Proteção contra soquetes fechados prematuramente
                             try:
-                                dr = sslSock.recv(4096)
-                                if not dr:
-                                    print(f"[{self.ip}] Câmera: Conexão rejeitada (Access Code/IP?).")
-                                    break
-                                    
-                                if img is not None:
-                                    img += dr
-                                    if len(img) >= payload_size:
-                                        # Frame completo - O exemplo valida start magic
-                                        if img.startswith(b'\xff\xd8'):
-                                            self.callback(bytes(img[:payload_size]))
-                                        img = None
-                                        payload_size = 0
-                                        
-                                elif len(dr) == 16:
-                                    # Cabeçalho de 16 bytes detectado
-                                    payload_size = int.from_bytes(dr[0:3], byteorder='little')
-                                    if payload_size > 0:
-                                        img = bytearray()
-                                    else:
-                                        img = None
-                                
-                            except ssl.SSLWantReadError:
-                                if self._stop_event.wait(0.1): break
-                                continue
-                            except Exception as e:
-                                print(f"[{self.ip}] Câmera: Erro no recebimento: {e}")
+                                ready = select.select([sslSock], [], [], 0.5)
+                            except (OSError, ValueError):
                                 break
+                                
+                            if not ready[0]: continue
+                            
+                            dr = sslSock.recv(16384)
+                            if not dr: break
+                            buffer += dr
+                            
+                            while len(buffer) >= 16:
+                                payload_size = int.from_bytes(buffer[0:4], byteorder='little')
+                                if payload_size > 1000000 or payload_size < 100:
+                                    buffer = buffer[1:]
+                                    continue
+                                    
+                                if len(buffer) < 16 + payload_size:
+                                    break
+                                
+                                img_data = buffer[16:16+payload_size]
+                                if img_data.startswith(b'\xff\xd8'):
+                                    self.callback(bytes(img_data))
+                                
+                                buffer = buffer[16+payload_size:]
+                                
+                        except ssl.SSLWantReadError:
+                            continue
+                        except Exception as e:
+                            log_debug(f"[{self.ip}] Câmera Loop: {e}")
+                            break
             except Exception as e:
-                print(f"[{self.ip}] Câmera: Erro de conexão: {e}")
+                if not self._stop_event.is_set():
+                    # print(f"[{self.ip}] Câmera Erro: {e}")
+                    pass
+                if self._stop_event.wait(5): break
+            except Exception as e:
+                log_debug(f"[{self.ip}] Câmera: Erro de conexão/Auth: {e}")
                 if self._stop_event.wait(5): break
 
     def stop(self):
@@ -341,31 +437,18 @@ class BambuPrinter(BasePrinter):
         })
 
     def connect(self):
-        if self.client: return
-
-        self.client = mqtt.Client(client_id=f"aditiva-{int(time.time())}")
-        self.client.username_pw_set("bblp", self.access_code)
-        
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS)
-        context.set_ciphers('DEFAULT@SECLEVEL=1:ALL')
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
-        context.options |= ssl.OP_NO_TLSv1_3
-        self.client.tls_set_context(context)
-        
-        self.client.on_connect = self.on_connect
-        self.client.on_message = self.on_message
-        
-    def connect(self):
         # Conexão em thread para não travar a inicialização do server
+        if not self.config.get('enabled', True): return
+        if self.client: return
         thread = threading.Thread(target=self._do_connect, daemon=True)
         thread.start()
 
     def _do_connect(self):
-        print(f"[{self.ip}] Conectando ao MQTT e Câmera...")
+        log_info(f"[{self.ip}] Conectando ao MQTT e Câmera...")
         self.client = mqtt.Client(client_id=f"aditiva-{int(time.time())}")
         self.client.username_pw_set("bblp", self.access_code)
         
+        # Contexto SSL - Igual ao exemplo que funciona
         context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
         context.set_ciphers('DEFAULT@SECLEVEL=1:AES128-SHA')
         context.check_hostname = False
@@ -376,16 +459,34 @@ class BambuPrinter(BasePrinter):
         self.client.on_message = self.on_message
         
         try:
-            # timeout menor para evitar travamento longo se offline
             self.client.connect(self.ip, 8883, 10) 
             self.client.loop_start()
+            
+            # Aguardar o MQTT estabilizar antes de abrir a câmera (importante para X1C)
+            time.sleep(2)
             
             if not self.cam_thread:
                 self.cam_thread = BambuCameraThread(self.ip, self.access_code, self.on_frame)
                 self.cam_thread.start()
         except Exception as e:
-            print(f"[{self.ip}] Falha na conexão MQTT: {e}")
+            log_error(f"[{self.ip}] Falha na conexão MQTT: {e}")
             self.status['state'] = 'offline'
+
+    def stop(self):
+        log_info(f"[{self.ip}] Parando serviços Bambu...")
+        if self.client:
+            try:
+                self.client.disconnect()
+                self.client.loop_stop()
+            except: pass
+        if self.cam_thread:
+            try:
+                self.cam_thread.stop()
+            except: pass
+        self.connected_flag = False
+        self._reset_status()
+        self.status['state'] = 'off'
+        
 
     def on_frame(self, frame):
         self.last_frame = frame
@@ -408,7 +509,7 @@ class BambuPrinter(BasePrinter):
             self.parse_bambu_json(payload)
             self.last_update = time.time()
         except Exception as e:
-            print(f"Error parsing Bambu msg: {e}")
+            log_error(f"Error parsing Bambu msg: {e}")
 
     def parse_bambu_json(self, data):
         with self.lock:

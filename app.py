@@ -14,6 +14,8 @@ app = Flask(__name__)
 CONFIG_FILE = 'config.json'
 PRINTERS = []
 STATUS_CACHE = {}
+APP_START_TIME = time.time()
+from logger_config import log_info, log_error, log_warn
 AUTH_FILE = 'auth_token.json'
 
 # Global state for rate calculations
@@ -73,9 +75,12 @@ def update_printers_once():
     
     # Remove deleted printers
     for p in PRINTERS:
-        if p.config['id'] not in config_map:
+        pid = p.config['id']
+        if pid not in config_map:
             try: p.stop()
             except: pass
+            if pid in STATUS_CACHE:
+                del STATUS_CACHE[pid]
     PRINTERS[:] = [p for p in PRINTERS if p.config['id'] in config_map]
 
     # Update existing or add new
@@ -92,6 +97,10 @@ def update_printers_once():
                     p.config = p_conf
                     p.ip = p_conf.get('ip')
                     break
+    
+    # Sort PRINTERS list to match config order
+    id_to_pos = {p['id']: i for i, p in enumerate(current_config)}
+    PRINTERS.sort(key=lambda p: id_to_pos.get(p.config['id'], 999))
 
 def update_p(p):
     try:
@@ -103,7 +112,7 @@ def update_p(p):
         p.update()
         STATUS_CACHE[p.config['id']] = p.get_status()
     except Exception as e:
-        print(f"Update failed for {p.config.get('name')}: {e}")
+        log_error(f"Update failed for {p.config.get('name')}: {e}")
 
 def polling_loop():
     while KEEP_RUNNING:
@@ -114,17 +123,17 @@ def polling_loop():
                 if not KEEP_RUNNING: break
                 try:
                     executor.submit(update_p, p)
-                except RuntimeError: # Se o executor já fechou
+                except RuntimeError:
                     break
             time.sleep(2)
         except Exception as e:
             if KEEP_RUNNING:
-                print(f"Error in polling loop: {e}")
+                log_error(f"Error in polling loop: {e}")
             time.sleep(5)
 
 def signal_handler(sig, frame):
     global KEEP_RUNNING
-    print("\n[System] Encerrando serviços (Aguarde)...")
+    log_info("\n[System] Encerrando serviços (Aguarde)...")
     KEEP_RUNNING = False
     try:
         executor.shutdown(wait=False, cancel_futures=True)
@@ -229,14 +238,33 @@ def get_token_api():
 
 @app.route('/api/printers', methods=['GET'])
 def get_printers():
-    return jsonify(list(STATUS_CACHE.values()))
+    # Return printers in the order of the PRINTERS list (which matches config)
+    ordered_status = []
+    for p in PRINTERS:
+        pid = p.config['id']
+        if pid in STATUS_CACHE:
+            ordered_status.append(STATUS_CACHE[pid])
+        else:
+            # Fallback if not updated yet
+            ordered_status.append(p.get_status())
+    return jsonify(ordered_status)
 
 @app.route('/api/camera/<printer_id>', methods=['GET'])
 def get_camera_frame(printer_id):
     printer = next((p for p in PRINTERS if p.config['id'] == printer_id), None)
-    if printer and hasattr(printer, 'last_frame') and printer.last_frame:
-        from flask import Response
-        return Response(printer.last_frame, mimetype='image/jpeg')
+    if printer:
+        # Check for cached frame (Bambu)
+        if hasattr(printer, 'last_frame') and printer.last_frame:
+            from flask import Response
+            return Response(printer.last_frame, mimetype='image/jpeg')
+        
+        # Check for on-demand snapshot (Moonraker)
+        if hasattr(printer, 'get_snapshot'):
+            frame = printer.get_snapshot()
+            if frame:
+                from flask import Response
+                return Response(frame, mimetype='image/jpeg')
+                
     return jsonify({'error': 'No frame available'}), 404
 
 @app.route('/api/raw_status/<printer_id>', methods=['GET'])
@@ -266,6 +294,7 @@ def add_printer():
         'camera_url': data.get('camera_url', ''),
         'camera_refresh': data.get('camera_refresh', False),
         'refresh_interval': int(data.get('refresh_interval', 5000)),
+        'platform_token': data.get('platform_token', ''),
         'enabled': True
     }
     if new_printer['type'] == 'elegoo':
@@ -289,6 +318,7 @@ def update_printer():
             p['camera_refresh'] = data.get('camera_refresh', p.get('camera_refresh', False))
             p['refresh_interval'] = int(data.get('refresh_interval', p.get('refresh_interval', 5000)))
             p['access_code'] = data.get('access_code', p.get('access_code', ''))
+            p['platform_token'] = data.get('platform_token', p.get('platform_token', ''))
             if p['type'] == 'elegoo':
                 p['port'] = 3000
             else:
@@ -308,10 +338,22 @@ def toggle_printer():
             p['enabled'] = not p.get('enabled', True)
             break
     save_config(config)
-    # Update live object config too
     for pr in PRINTERS:
         if pr.config['id'] == p_id:
-            pr.config['enabled'] = not pr.config.get('enabled', True)
+            is_enabled = not pr.config.get('enabled', True)
+            pr.config['enabled'] = is_enabled
+            # Shutdown or Startup background tasks immediately
+            if not is_enabled:
+                log_info(f"[System] Desativando impressora {pr.name}...")
+                pr.stop()
+            else:
+                log_info(f"[System] Reativando impressora {pr.name}...")
+                try: pr.connect()
+                except: pass
+            
+            # Update cache immediately for frontend responsiveness
+            STATUS_CACHE[p_id] = pr.get_status()
+            break
     return jsonify({"success": True})
 
 @app.route('/api/gcode', methods=['POST'])
@@ -332,6 +374,25 @@ def delete_printer():
     config = load_config()
     config = [p for p in config if p['id'] != p_id]
     save_config(config)
+    update_printers_once()
+    return jsonify({"success": True})
+
+@app.route('/api/reorder_printers', methods=['POST'])
+def reorder_printers():
+    p_id = request.json.get('id')
+    direction = request.json.get('direction') # 'up' or 'down'
+    config = load_config()
+    
+    idx = next((i for i, p in enumerate(config) if p['id'] == p_id), -1)
+    if idx == -1: return jsonify({"success": False}), 404
+    
+    if direction == 'up' and idx > 0:
+        config[idx], config[idx-1] = config[idx-1], config[idx]
+    elif direction == 'down' and idx < len(config) - 1:
+        config[idx], config[idx+1] = config[idx+1], config[idx]
+    
+    save_config(config)
+    update_printers_once()
     return jsonify({"success": True})
 
 @app.route('/api/control', methods=['POST'])
@@ -348,6 +409,8 @@ def control_printer():
             kwargs = val
         elif val is not None:
             kwargs['val'] = val
+        
+        log_info(f"Command '{command}' sent to {printer.name}")
         printer.send_command(command, **kwargs)
         return jsonify({"success": True})
     return jsonify({"success": False, "error": "Printer not found"}), 404
@@ -355,7 +418,7 @@ def control_printer():
 if __name__ == '__main__':
     # Flask reloader will run this twice. We only want to start threads in the child process.
     if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
-        print("[System] Iniciando serviços de background...")
+        log_info("[System] Iniciando serviços de background...")
         update_printers_once()
         t = threading.Thread(target=polling_loop, daemon=True, name="PollingLoop")
         t.start()

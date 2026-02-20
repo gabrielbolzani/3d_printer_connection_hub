@@ -1,6 +1,32 @@
 [
     {
-        "id": "1771382059",
+        "id": "1771500014",
+        "name": "A1",
+        "type": "bambu",
+        "ip": "192.168.0.151",
+        "port": 80,
+        "serial": "03919C461801624",
+        "access_code": "26689635",
+        "camera_url": "",
+        "camera_refresh": false,
+        "refresh_interval": 5000,
+        "enabled": true
+    },
+    {
+        "id": "1771500767",
+        "name": "X1C",
+        "type": "bambu",
+        "ip": "192.168.0.152",
+        "port": 80,
+        "serial": "00M09D4B0301993",
+        "access_code": "74e149f7",
+        "camera_url": "",
+        "camera_refresh": false,
+        "refresh_interval": 5000,
+        "enabled": true
+    },
+    {
+        "id": "1771414701",
         "name": "K1 Max",
         "type": "moonraker",
         "ip": "192.168.0.150:4409",
@@ -8,6 +34,22 @@
         "serial": "",
         "access_code": "",
         "camera_url": "http://192.168.0.150:4409/webcam/?action=stream",
-        "refresh_interval": 5000
+        "refresh_interval": 3000,
+        "enabled": true,
+        "camera_refresh": false,
+        "platform_token": "1234"
+    },
+    {
+        "id": "1771501211",
+        "name": "Saturn 3 Ultra Resina",
+        "type": "elegoo",
+        "ip": "192.168.0.153",
+        "port": 3000,
+        "serial": "",
+        "access_code": "",
+        "camera_url": "",
+        "camera_refresh": false,
+        "refresh_interval": 3000,
+        "enabled": true
     }
 ]
