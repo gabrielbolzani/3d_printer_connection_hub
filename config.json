@@ -10,7 +10,9 @@
         "camera_url": "",
         "camera_refresh": false,
         "refresh_interval": 5000,
-        "enabled": true
+        "enabled": true,
+        "platform_token": "",
+        "total_usage": 1309.0
     },
     {
         "id": "1771500767",
@@ -22,8 +24,10 @@
         "access_code": "74e149f7",
         "camera_url": "",
         "camera_refresh": false,
-        "refresh_interval": 5000,
-        "enabled": true
+        "refresh_interval": 3000,
+        "enabled": true,
+        "platform_token": "",
+        "total_usage": 1069.828169716071
     },
     {
         "id": "1771414701",
@@ -37,7 +41,8 @@
         "refresh_interval": 3000,
         "enabled": true,
         "camera_refresh": false,
-        "platform_token": "1234"
+        "platform_token": "",
+        "total_usage": 1311.2862353034157
     },
     {
         "id": "1771501211",

@@ -15,7 +15,7 @@ CONFIG_FILE = 'config.json'
 PRINTERS = []
 STATUS_CACHE = {}
 APP_START_TIME = time.time()
-from logger_config import log_info, log_error, log_warn
+from logger_config import log_info, log_error, log_warn, log_debug
 AUTH_FILE = 'auth_token.json'
 
 # Global state for rate calculations
@@ -292,6 +292,7 @@ def add_printer():
         'serial': data.get('serial', ''),
         'access_code': data.get('access_code', ''),
         'camera_url': data.get('camera_url', ''),
+        'custom_camera': data.get('custom_camera', False),
         'camera_refresh': data.get('camera_refresh', False),
         'refresh_interval': int(data.get('refresh_interval', 5000)),
         'platform_token': data.get('platform_token', ''),
@@ -315,10 +316,12 @@ def update_printer():
             p['ip'] = data.get('ip', p['ip'])
             p['serial'] = data.get('serial', p.get('serial', ''))
             p['camera_url'] = data.get('camera_url', p.get('camera_url', ''))
+            p['custom_camera'] = data.get('custom_camera', p.get('custom_camera', False))
             p['camera_refresh'] = data.get('camera_refresh', p.get('camera_refresh', False))
             p['refresh_interval'] = int(data.get('refresh_interval', p.get('refresh_interval', 5000)))
             p['access_code'] = data.get('access_code', p.get('access_code', ''))
             p['platform_token'] = data.get('platform_token', p.get('platform_token', ''))
+            p['total_usage'] = float(data.get('total_usage', p.get('total_usage', 0.0)))
             if p['type'] == 'elegoo':
                 p['port'] = 3000
             else:
@@ -326,7 +329,14 @@ def update_printer():
             break
     save_config(config)
     global PRINTERS
-    PRINTERS[:] = [pr for pr in PRINTERS if pr.config['id'] != p_id]
+    # Parar e remover a instância antiga para forçar a criação de uma nova
+    for pr in PRINTERS:
+        if str(pr.config['id']) == str(p_id):
+            try: pr.stop()
+            except: pass
+            
+    PRINTERS[:] = [pr for pr in PRINTERS if str(pr.config['id']) != str(p_id)]
+    update_printers_once()
     return jsonify({"success": True})
 
 @app.route('/api/toggle_printer', methods=['POST'])
@@ -374,6 +384,14 @@ def delete_printer():
     config = load_config()
     config = [p for p in config if p['id'] != p_id]
     save_config(config)
+    
+    global PRINTERS
+    for pr in PRINTERS:
+        if str(pr.config['id']) == str(p_id):
+            try: pr.stop()
+            except: pass
+    PRINTERS[:] = [pr for pr in PRINTERS if str(pr.config['id']) != str(p_id)]
+    
     update_printers_once()
     return jsonify({"success": True})
 
@@ -420,6 +438,24 @@ if __name__ == '__main__':
     if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
         log_info("[System] Iniciando serviços de background...")
         update_printers_once()
+        
+        def save_usage_periodically():
+            while True:
+                time.sleep(300) # Save every 5 minutes
+                config = load_config()
+                changed = False
+                for pr in PRINTERS:
+                    current_usage = pr.status.get('total_usage', 0)
+                    for p_cfg in config:
+                        if p_cfg['id'] == pr.config['id']:
+                            if abs(p_cfg.get('total_usage', 0) - current_usage) > 0.01:
+                                p_cfg['total_usage'] = current_usage
+                                changed = True
+                if changed:
+                    save_config(config)
+                    log_debug("[System] Horas de uso persistidas no config.json")
+
+        threading.Thread(target=save_usage_periodically, daemon=True, name="UsageSaver").start()
         t = threading.Thread(target=polling_loop, daemon=True, name="PollingLoop")
         t.start()
     
