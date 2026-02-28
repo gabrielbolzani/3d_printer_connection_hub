@@ -11,27 +11,89 @@
         Enter your AditivaFlow platform token here to enable cloud integration.
     </p>
 
+    <!-- Perfil do Usuário / Status de Conexão -->
+    <div id="authStatus"
+        style="margin-bottom: 2rem; padding: 1.5rem; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); display: none;">
+        <h3
+            style="margin-bottom: 1rem; font-size: 0.9rem; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.05em;">
+            Connected Profile</h3>
+        <div style="display: flex; align-items: center; gap: 1rem;">
+            <div id="userAvatar"
+                style="width: 48px; height: 48px; border-radius: 50%; background: var(--accent-dim); color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; font-weight: bold; border: 1px solid var(--accent);">
+                ?
+            </div>
+            <div>
+                <div id="userName" style="font-weight: 600; font-size: 1rem; color: var(--text-1);">Loading...</div>
+                <div id="userEmail" style="font-size: 0.85rem; color: var(--text-2);">---</div>
+            </div>
+            <div style="margin-left: auto;">
+                <span id="connectionBadge" class="sbadge">Checking...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Formulário do Token -->
     <form id="tokenForm">
         <div class="form-group">
             <label for="token">Integration Token</label>
             <input type="text" id="token" name="token" placeholder="Enter your token..." required
-                style="font-family: monospace; letter-spacing: 1px; padding: 1rem;">
+                style="font-family: monospace; letter-spacing: 0.5px; padding: 1rem; background: rgba(0,0,0,0.5); border-color: var(--accent-dim);">
+            <p style="font-size: 0.75rem; color: var(--text-3); margin-top: 5px;">
+                <i class="fas fa-info-circle"></i> This token allows the hub to synchronize your printers with the cloud
+                platform.
+            </p>
         </div>
 
         <div class="actions" style="margin-top: 2rem; justify-content: flex-end;">
-            <button type="submit" class="btn btn-primary">Save Token</button>
+            <button type="submit" class="btn btn-primary">Save & Connect</button>
         </div>
     </form>
 
-    <div id="msg" style="margin-top: 1rem; padding: 1rem; border-radius: 4px; display: none;"></div>
+    <div id="msg" style="margin-top: 1rem; padding: 1rem; border-radius: 4px; display: none; font-size: 0.85rem;"></div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+    const authStatus = document.getElementById('authStatus');
+    const userName = document.getElementById('userName');
+    const userEmail = document.getElementById('userEmail');
+    const userAvatar = document.getElementById('userAvatar');
+    const connectionBadge = document.getElementById('connectionBadge');
+    const tokenInput = document.getElementById('token');
+
+    async function verifyToken() {
+        try {
+            // Usar api/auth/profile que retorna email e token_raw
+            const res = await fetch('/api/auth/profile');
+            const data = await res.json();
+
+            if (data.success && data.data) {
+                authStatus.style.display = 'block';
+                userName.innerText = data.data.full_name || 'Authenticated User';
+                userEmail.innerText = data.data.email || 'N/A';
+                userAvatar.innerText = (data.data.full_name || 'A')[0].toUpperCase();
+
+                connectionBadge.innerText = 'Connected';
+                connectionBadge.className = 'sbadge sbadge-running';
+
+                // Preencher o token em texto puro se retornar
+                if (data.token_raw) {
+                    tokenInput.value = data.token_raw;
+                }
+            } else {
+                authStatus.style.display = 'none';
+                connectionBadge.innerText = 'Disconnected';
+                connectionBadge.className = 'sbadge sbadge-offline';
+            }
+        } catch (e) {
+            console.error('Auth profile error:', e);
+        }
+    }
+
     document.getElementById('tokenForm').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const token = document.getElementById('token').value;
+        const token = tokenInput.value;
         const msg = document.getElementById('msg');
 
         const res = await fetch('/api/save_token', {
@@ -46,7 +108,8 @@
         if (data.success) {
             msg.style.backgroundColor = 'rgba(46, 160, 67, 0.2)';
             msg.style.color = 'var(--success-color)';
-            msg.innerText = 'Token saved successfully!';
+            msg.innerText = 'Token saved successfully! Verifying connection...';
+            setTimeout(verifyToken, 1000);
         } else {
             msg.style.backgroundColor = 'rgba(248, 81, 73, 0.2)';
             msg.style.color = 'var(--danger-color)';
@@ -54,14 +117,7 @@
         }
     });
 
-    // Load existing token (masked)
-    async function loadToken() {
-        const res = await fetch('/api/get_token');
-        const data = await res.json();
-        if (data.token) {
-            document.getElementById('token').value = data.token;
-        }
-    }
-    loadToken();
+    // Carregar informações ao abrir a página
+    verifyToken();
 </script>
 {% endblock %}

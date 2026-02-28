@@ -1455,9 +1455,9 @@ CARD BUILDER
                 </div> </div>` : '';
 
         const usageBox = `
-            <div class="stat-box">
+            <div class="stat-box" title="Horas totais acumuladas">
                 <div class="stat-lbl"><i class="fas fa-hourglass-half"></i> Horas</div>
-                <div class="stat-val">${parseFloat(p.total_usage || 0).toFixed(1)}h</div>
+                <div class="stat-val">${parseFloat(p.total_usage || 0).toFixed(4)}h</div>
             </div>`;
 
         const statsHtml = p.type === 'elegoo' ? `
@@ -1499,6 +1499,10 @@ CARD BUILDER
             <div class="stat-box">
                 <div class="stat-lbl"><i class="fas fa-clock"></i> ETA</div>
                 <div class="stat-val">${eta}</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-lbl"><i class="fas fa-hourglass-half"></i> Duração</div>
+                <div class="stat-val">${fmtEta(p.total_duration)}</div>
             </div>
             <div class="stat-box">
                 <div class="stat-lbl"><i class="fas fa-flag-checkered"></i> Fim</div>
@@ -1888,7 +1892,7 @@ CONTROLS
         document.getElementById('eCameraUrl').value = printer.camera_url || '';
         document.getElementById('eRefresh').value = printer.refresh_interval || 5000;
         document.getElementById('ePlatformToken').value = printer.platform_token || '';
-        document.getElementById('eUsage').value = printer.total_usage || 0;
+        document.getElementById('eUsage').value = parseFloat(printer.total_usage || 0).toFixed(4);
         document.getElementById('eType').value = printer.type || 'moonraker';
         toggleEditFields();
         switchTab(goRaw ? 'tabRaw' : 'tabEdit', goRaw ? 'tabRawBtn' : 'tabEditBtn');

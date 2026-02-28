@@ -1,0 +1,146 @@
+{
+  "info": {
+    "name": "AditivaFlow - Hub API",
+    "description": "Collection para integração do 3D Printer Hub com a plataforma AditivaFlow.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://iwsqfjngeicyrcdowdbi.supabase.co/functions/v1/device-api",
+      "type": "string"
+    },
+    {
+      "key": "hub_token",
+      "value": "SEU_TOKEN_HUB_AQUI",
+      "type": "string"
+    },
+    {
+      "key": "sync_code",
+      "value": "ABC123",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Autenticação",
+      "item": [
+        {
+          "name": "Verificar Token",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-device-token",
+                "value": "{{hub_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/auth",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Listar Máquinas Sincronizáveis",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-device-token",
+                "value": "{{hub_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/hub/machines",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "hub",
+                "machines"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Sincronização",
+      "item": [
+        {
+          "name": "Enviar Status da Máquina",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-device-token",
+                "value": "{{hub_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sync_code\": \"{{sync_code}}\",\n  \"state\": \"printing\",\n  \"temp_nozzle\": 210,\n  \"temp_bed\": 60,\n  \"progress\": 45,\n  \"filename\": \"benchy.gcode\",\n  \"remaining_time\": 1200,\n  \"layer\": 50,\n  \"total_layers\": 100,\n  \"total_usage\": 150.5,\n  \"printer_type\": \"bambu\",\n  \"thumbnail_base64\": null,\n  \"camera_frame_base64\": null\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/hub/sync",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "hub",
+                "sync"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Confirmar Comando",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-device-token",
+                "value": "{{hub_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"success\": true,\n  \"message\": \"Comando executado\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/hub/command-confirm/:commandId",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "hub",
+                "command-confirm",
+                ":commandId"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+
+{% block title %}Console - AditivaFlow{% endblock %}
+{% block header_title %}
+<i class="fas fa-terminal" style="color:var(--accent);margin-right:0.5rem;font-size:0.9rem;"></i>
+System & Cloud Console
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .console-wrapper {
+        background: #0d1117;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 160px);
+        overflow: hidden;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+
+    .console-header {
+        background: var(--surface);
+        padding: 0.75rem 1.25rem;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .console-title {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--text-2);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .console-actions {
+        display: flex;
+        gap: 10px;
+    }
+
+    #console-output {
+        flex: 1;
+        padding: 1.25rem;
+        overflow-y: auto;
+        font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+        font-size: 13px;
+        line-height: 1.6;
+        color: #d1d5db;
+        scroll-behavior: smooth;
+    }
+
+    .log-line {
+        margin-bottom: 4px;
+        border-radius: 4px;
+        padding: 2px 6px;
+        display: flex;
+        gap: 12px;
+        animation: fadeIn 0.2s ease;
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(2px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .log-time {
+        color: #6b7280;
+        min-width: 75px;
+        user-select: none;
+    }
+
+    .log-level {
+        font-weight: 700;
+        min-width: 50px;
+        text-transform: uppercase;
+        font-size: 11px;
+    }
+
+    .level-info {
+        color: var(--accent);
+    }
+
+    .level-cloud {
+        color: var(--purple);
+    }
+
+    .level-error {
+        color: var(--red);
+    }
+
+    .level-warn {
+        color: var(--yellow);
+    }
+
+    .level-debug {
+        color: #8b949e;
+    }
+
+    .log-msg {
+        word-break: break-all;
+    }
+
+    .log-line:hover {
+        background: rgba(255, 255, 255, 0.03);
+    }
+
+    /* Scrollbar */
+    #console-output::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    #console-output::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    #console-output::-webkit-scrollbar-thumb {
+        background: #21262d;
+        border-radius: 10px;
+    }
+
+    #console-output::-webkit-scrollbar-thumb:hover {
+        background: #30363d;
+    }
+
+    .auto-scroll-btn {
+        font-size: 0.75rem;
+        padding: 4px 8px;
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--text-2);
+        border-radius: 4px;
+        cursor: pointer;
+    }
+
+    .auto-scroll-btn.active {
+        background: var(--accent-dim);
+        color: var(--accent);
+        border-color: var(--accent);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="console-wrapper">
+    <div class="console-header">
+        <div class="console-title">
+            <i class="fas fa-terminal"></i>
+            LIVE LOGS <span id="log-count" style="opacity: 0.5; font-weight: normal; margin-left: 5px;">(0 lines)</span>
+        </div>
+        <div class="console-actions">
+            <button class="auto-scroll-btn active" id="btn-autoscroll" onclick="toggleAutoScroll()">
+                <i class="fas fa-arrow-down"></i> Auto-scroll
+            </button>
+            <button class="auto-scroll-btn" onclick="clearConsole()">
+                <i class="fas fa-trash-alt"></i> Clear
+            </button>
+        </div>
+    </div>
+    <div id="console-output">
+        <div class="log-line">
+            <span class="log-time" id="init-time"></span>
+            <span class="log-level level-info">INFO</span>
+            <span class="log-msg">Console initialized. Waiting for logs...</span>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.getElementById('init-time').innerText = new Date().toLocaleTimeString();
+
+    let autoScroll = true;
+    let lastLogId = 0;
+    let logCount = 0;
+
+    function toggleAutoScroll() {
+        autoScroll = !autoScroll;
+        document.getElementById('btn-autoscroll').classList.toggle('active', autoScroll);
+    }
+
+    function clearConsole() {
+        document.getElementById('console-output').innerHTML = '';
+        logCount = 0;
+        updateCount();
+    }
+
+    function updateCount() {
+        document.getElementById('log-count').innerText = `(${logCount} lines)`;
+    }
+
+    function appendLog(log) {
+        const output = document.getElementById('console-output');
+        const line = document.createElement('div');
+        line.className = 'log-line';
+
+        const levelClass = `level-${log.level.toLowerCase()}`;
+
+        line.innerHTML = `
+            <span class="log-time">${log.time}</span>
+            <span class="log-level ${levelClass}">${log.level}</span>
+            <span class="log-msg">${log.message}</span>
+        `;
+
+        output.appendChild(line);
+        logCount++;
+        updateCount();
+
+        if (autoScroll) {
+            output.scrollTop = output.scrollHeight;
+        }
+
+        // Keep last 1000 lines
+        if (output.children.length > 1000) {
+            output.removeChild(output.firstChild);
+        }
+    }
+
+    async function fetchLogs() {
+        try {
+            const res = await fetch(`/api/logs?last_id=${lastLogId}`);
+            const logs = await res.json();
+
+            if (logs.length > 0) {
+                logs.forEach(log => {
+                    appendLog(log);
+                    lastLogId = Math.max(lastLogId, log.id);
+                });
+            }
+        } catch (e) {
+            console.error('Failed to fetch logs:', e);
+        }
+    }
+
+    setInterval(fetchLogs, 1000);
+</script>
+{% endblock %}

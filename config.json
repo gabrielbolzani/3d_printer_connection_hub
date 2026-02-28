@@ -11,8 +11,9 @@
         "camera_refresh": false,
         "refresh_interval": 5000,
         "enabled": true,
-        "platform_token": "",
-        "total_usage": 1309.0
+        "platform_token": "6XBDUY",
+        "total_usage": 1313.0186,
+        "custom_camera": false
     },
     {
         "id": "1771500767",
@@ -26,8 +27,9 @@
         "camera_refresh": false,
         "refresh_interval": 3000,
         "enabled": true,
-        "platform_token": "",
-        "total_usage": 1069.828169716071
+        "platform_token": "5G3APH",
+        "total_usage": 1101.6632,
+        "custom_camera": false
     },
     {
         "id": "1771414701",
@@ -41,8 +43,9 @@
         "refresh_interval": 3000,
         "enabled": true,
         "camera_refresh": false,
-        "platform_token": "",
-        "total_usage": 1311.2862353034157
+        "platform_token": "ZVUN8T",
+        "total_usage": 1311.0,
+        "custom_camera": false
     },
     {
         "id": "1771501211",
@@ -55,6 +58,9 @@
         "camera_url": "",
         "camera_refresh": false,
         "refresh_interval": 3000,
-        "enabled": true
+        "enabled": true,
+        "custom_camera": false,
+        "platform_token": "YV44ES",
+        "total_usage": 0.0
     }
 ]

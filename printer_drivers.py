@@ -70,6 +70,8 @@ class BasePrinter:
             'layer': 0,
             'total_layers': 0,
             'finish_time': '--',
+            'print_duration': 0,
+            'total_duration': 0,
             'total_usage': config.get('total_usage', 0.0)
         }
         self.last_update = 0
@@ -176,12 +178,19 @@ class MoonrakerPrinter(BasePrinter):
     def _fetch_metadata(self, filename):
         if not filename:
             self.status['cover_image'] = None
+            self.status['total_duration'] = 0
             return
         try:
             url = f"http://{self.ip}/server/files/metadata?filename={filename}"
             resp = requests.get(url, timeout=2)
             if resp.status_code == 200:
                 data = resp.json().get('result', {})
+                
+                # Total duration estimate from metadata (seconds to minutes)
+                est = data.get('estimated_time', 0)
+                if est > 0:
+                    self.status['total_duration'] = int(est / 60)
+                
                 thumbs = data.get('thumbnails', [])
                 if thumbs:
                     # Pick largest thumbnail
@@ -265,10 +274,18 @@ class MoonrakerPrinter(BasePrinter):
                         total_est = elapsed / prog
                         rem_time = (total_est - elapsed) / 60 # minutes
                         self.status['remaining_time'] = int(rem_time)
+                        
+                        # Use file estimate if available and larger, otherwise use calculated total
+                        calculated_total = int(total_est / 60)
+                        file_est = self.status.get('total_duration', 0)
+                        self.status['total_duration'] = max(calculated_total, file_est)
+                        
+                        self.status['print_duration'] = int(elapsed / 60) # minutes
                         finish_dt = datetime.now() + timedelta(minutes=rem_time)
                         self.status['finish_time'] = finish_dt.strftime("%H:%M")
                     elif prog >= 1:
                         self.status['remaining_time'] = 0
+                        self.status['total_duration'] = self.status.get('print_duration', 0)
                         self.status['finish_time'] = '--'
                 
                 
@@ -623,6 +640,7 @@ class BambuPrinter(BasePrinter):
         })
         # total_usage já está no BasePrinter.status
         self.start_time = None
+        self.print_start_time = None # Para cronômetro de impressão local
 
     def connect(self):
         # Conexão em thread para não travar a inicialização do server
@@ -712,8 +730,9 @@ class BambuPrinter(BasePrinter):
             # Mas geralmente a Bambu manda {"print": {...}} ou {"ams": {...}}
             
             if p:
+                curr_state = p.get('gcode_state', '').lower() or self.status.get('state', '').lower()
                 if 'gcode_state' in p:
-                    self.status['state'] = p['gcode_state'].lower()
+                    self.status['state'] = curr_state
                 if 'mc_percent' in p:
                     self.status['progress'] = p['mc_percent']
                 if 'mc_remaining_time' in p:
@@ -732,17 +751,51 @@ class BambuPrinter(BasePrinter):
                     self.status['chamber_temp'] = p['chamber_temper']
                 if 'subtask_name' in p:
                     new_file = p['subtask_name']
-                    if new_file != self.current_filename and new_file:
+                    prev_state = self.status.get('state', '').lower()
+                    
+                    # Forçar atualização se o arquivo mudar OU se começar a imprimir (mesmo que o arquivo seja o mesmo)
+                    force_update = (new_file != self.current_filename and new_file) or (curr_state == 'printing' and prev_state != 'printing')
+                    
+                    if force_update:
                         self.current_filename = new_file
                         self.status['filename'] = new_file
-                        # Simplificar nome da task
                         self.status['task_name'] = new_file.replace('.gcode', '').replace('.3mf', '')
                         # Resetar metadata p/ nova task
                         self.status['cover_image'] = None
                         self.status['print_weight'] = 0
+                        self.status['print_duration'] = 0
+                        self.status['total_duration'] = 0
+                        self.print_start_time = time.time() # Reset local timer
                         # Tentar buscar metadata via FTP
                         self._start_metadata_fetch(new_file)
-                if 'cooling_fan_speed' in p:
+                if curr_state in ['printing', 'running']:
+                    if not self.print_start_time:
+                        self.print_start_time = time.time()
+                    # Tempo decorrido local (fallback) em minutos
+                    local_elapsed = int((time.time() - self.print_start_time) / 60)
+                    
+                    # Tenta pegar tempo decorrido oficial da impressora
+                    elapsed = p.get('mc_elapsed_time', 0)
+                    if not elapsed and 'mc_print_duration' in p:
+                         elapsed = p['mc_print_duration']
+                    
+                    # Usa o maior valor disponível para evitar quedas no cronômetro
+                    self.status['print_duration'] = max(local_elapsed, elapsed)
+                else:
+                    self.print_start_time = None
+                    self.status['print_duration'] = 0
+                
+                if 'mc_remaining_time' in p:
+                    rem = p['mc_remaining_time']
+                    self.status['remaining_time'] = rem
+                    
+                    # total_duration: maior entre (estimado do arquivo) e (decorrido + restante)
+                    file_est = self.status.get('total_duration', 0)
+                    calculated = self.status.get('print_duration', 0) + rem
+                    self.status['total_duration'] = max(file_est, calculated)
+                    
+                    dt = datetime.now() + timedelta(minutes=rem)
+                    self.status['finish_time'] = dt.strftime("%H:%M")
                     self.status['fan_part'] = round((int(p['cooling_fan_speed']) / 15.0) * 100)
                 if 'big_fan1_speed' in p:
                     self.status['fan_aux'] = round((int(p['big_fan1_speed']) / 15.0) * 100)
@@ -962,6 +1015,9 @@ class BambuPrinter(BasePrinter):
                                     for meta in plate:
                                         if meta.get('key') == 'weight':
                                             self.status['print_weight'] = float(meta.get('value'))
+                                        elif meta.get('key') == 'prediction':
+                                            # Estimativa de tempo em segundos para minutos
+                                            self.status['total_duration'] = int(float(meta.get('value')) / 60)
                                         elif meta.get('key') == 'index':
                                             plate_idx = meta.get('value')
                                     
