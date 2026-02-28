@@ -1,83 +1,79 @@
-# Hub de Conexão de Impressoras 3D - AditivaFlow
+# 🚀 AditivaFlow Printer Hub
 
-Um gateway centralizado e poderoso projetado para complementar a plataforma **AditivaFlow**. Este projeto permite gerenciar e unificar impressoras 3D de diferentes fabricantes (Bambu Lab, Klipper/Moonraker, Elegoo) em um dashboard único e unificado.
+O **AditivaFlow Hub** é um gateway poderoso e unificado para transformar o gerenciamento das suas impressoras 3D. Ele conecta impressoras locais de diferentes marcas (Bambu Lab, Klipper, Elegoo) à plataforma **AditivaFlow**, permitindo monitoramento remoto, telemetria em tempo real e controle centralizado.
 
-Projetado para rodar em modo "headless" (sem monitor) em uma máquina dedicada (como um Raspberry Pi ou Mini PC), mas acessível de qualquer dispositivo através de uma interface web responsiva.
+Projetado para ser versátil, o Hub pode rodar como um serviço de background no Linux, um aplicativo desktop no Windows ou como um Add-on dentro do Home Assistant.
 
-## 🚀 Funcionalidades Principais
+---
 
-*   **Integração AditivaFlow**: Atua como uma ponte para conectar suas impressoras locais à nuvem e serviços da AditivaFlow.
-*   **Dashboard Unificado**: Monitore múltiplas impressoras em tempo real em uma única tela. Chega de alternar abas entre diferentes IPs.
-*   **Suporte Multi-Marca**: Integração perfeita de impressoras de diferentes ecossistemas:
-    *   **Bambu Lab**: Monitoramento completo de status via MQTT seguro (SSL).
-    *   **Klipper / Moonraker**: Integração padrão para Vorons, RatRig, Creality K1/Max (com root) e outras máquinas baseadas em Klipper.
-    *   **Elegoo (Série Saturn)**: Comunicação direta UDP para impressoras de resina como a Saturn 3 Ultra.
-*   **Monitoramento do Sistema**: Rastreamento integrado de recursos da máquina host (CPU, RAM, Disco, Rede e I/O da Aplicação) para garantir operação estável.
-*   **Design Responsivo**: Interface amigável para dispositivos móveis que funciona perfeitamente em desktops, tablets e smartphones.
-*   **Armazenamento Seguro**: Gerencia com segurança os tokens de integração para conectividade externa.
+## 📦 Versões Disponíveis
 
-## 🖨️ Hardware Suportado
+### 🪟 Windows (Desktop App)
+Ideal para quem utiliza um PC ou Servidor Windows. Acompanha uma interface simplificada para controle.
 
-A aplicação inclui atualmente drivers para:
-*   **Bambu Lab**: X1C, P1S, A1, A1 Mini (requer Código de Acesso e Serial).
-*   **Klipper**: Qualquer impressora rodando API Moonraker (ex: Voron, Creality K1/Max).
-*   **Elegoo**: Testado com Saturn 3 Ultra (Implementação de referência para sistemas Chitu).
+*   **Instalação:** 
+    1.  Baixe o `AditivaFlowHub.exe` na aba [Releases](https://github.com/gabrielbolzani/3d_printer_connection_hub/releases).
+    2.  Execute o aplicativo. Na primeira vez, ele configurará automaticamente o ambiente Python necessário.
+    3.  Clique em **"Ligar Servidor"**.
+*   **Destaque:** Opção "Iniciar com o Windows" inclusa na interface.
 
-## 🛠️ Instalação
+### 🐧 Linux (Server/Raspberry Pi)
+A melhor opção para máquinas dedicadas (headless). Roda como um serviço do sistema (`systemd`).
 
-### Pré-requisitos
-*   Python 3.8 ou superior
-*   Gerenciador de pacotes `pip`
-
-### Passos
-
-1.  **Clone o Repositório**
+*   **Instalação via Terminal (CURL):**
     ```bash
-    git clone https://github.com/gabrielbolzani/3d_printer_connection_hub.git
-    cd 3d_printer_connection_hub
+    sudo curl -sSL https://raw.githubusercontent.com/gabrielbolzani/3d_printer_connection_hub/main/deployments/linux/install.sh | bash
     ```
+*   **Comandos úteis:**
+    *   Ver status: `sudo systemctl status aditivaflow-hub`
+    *   Ver logs: `journalctl -u aditivaflow-hub -f`
 
-2.  **Instale as Dependências**
-    ```bash
-    pip install -r requirements.txt
-    ```
+### 🏠 Home Assistant (Add-on)
+Integre o Hub diretamente no seu ecossistema de casa inteligente.
 
-3.  **Execute a Aplicação**
-    ```bash
-    python app.py
-    ```
+*   **Instalação:**
+    1.  No Home Assistant, vá em **Configurações** > **Add-ons** > **Loja de Add-ons**.
+    2.  Clique nos três pontos (superior direito) > **Repositórios**.
+    3.  Adicione a URL deste repositório.
+    4.  Instale o add-on **AditivaFlow Hub**.
 
-4.  **Acesse o Dashboard**
-    Abra seu navegador e acesse:
-    `http://localhost:5000` ou `http://<ip-da-sua-maquina>:5000`
+---
 
-## ⚙️ Configuração
+## 🛠️ Funcionalidades
 
-### Adicionando uma Impressora
-1.  Navegue até a aba **Printers** (Impressoras) na barra lateral.
-2.  Clique no botão **Add Printer** (Adicionar Impressora) no canto superior direito.
-3.  Selecione o tipo da impressora (Bambu, Moonraker ou Elegoo).
-4.  Insira os detalhes necessários (Endereço IP, Número de Série, Código de Acesso, etc.).
-5.  Clique em **Add**. A impressora aparecerá instantaneamente no dashboard.
+*   **Dashboard Unificado:** Visualize todas as suas impressoras em uma única tela local (`http://localhost:5000`).
+*   **Multi-Driver:** Suporte nativo para:
+    *   **Bambu Lab:** X1, P1, A1 (via Cloud ou Local MQTT).
+    *   **Klipper / Moonraker:** Voron, RatRig, Ender (com Klipper).
+    *   **Elegoo:** Resina (Saturn 3 Ultra e similares).
+*   **Sincronização Cloud:** Envio automático de telemetria, histórico de impressão e imagens da câmera para o AditivaFlow.
+*   **Monitoramento de Sistema:** Acompanhe o uso de CPU, RAM e Rede da máquina host.
 
-### Monitoramento do Sistema
-Navegue até a aba **System Monitor** para ver estatísticas em tempo real da máquina host, incluindo o uso específico de recursos da aplicação Python Hub.
+---
 
-## 🏗️ Arquitetura
+## ⚙️ Configuração Inicial
 
-O projeto é construído com:
-*   **Backend**: Python (Flask) para o servidor web e API.
-*   **Frontend**: HTML5, CSS3 (Design responsivo customizado), JavaScript (Fetch API, Chart.js).
-*   **Protocolos**: MQTT (Bambu), HTTP REST (Moonraker), UDP (Elegoo).
+1.  **Acesse o Hub:** Abra `http://localhost:5000` no seu navegador.
+2.  **Autenticação:** Na aba de Configurações, insira seu `Device Token` do AditivaFlow.
+3.  **Adicionar Impressoras:** Informe o IP e as credenciais (Serial/Access Code para Bambu) de cada máquina.
+4.  **Pronto!** Suas impressoras começarão a aparecer no dashboard local e na nuvem.
 
-## 🤝 Contribuição
+---
 
-Contribuições são bem-vindas! Se você quiser adicionar suporte para uma nova marca de impressora:
-1.  Faça um Fork do repositório.
-2.  Crie uma nova classe de driver herdando de `BasePrinter` em `printer_drivers.py`.
-3.  Atualize a função factory `create_printer`.
-4.  Envie um Pull Request.
+## 👨‍💻 Para Desenvolvedores
+
+Se deseja rodar a partir do código fonte:
+
+1.  Clone o repositório: `git clone https://github.com/gabrielbolzani/3d_printer_connection_hub.git`
+2.  Crie um ambiente virtual: `python -m venv venv`
+3.  Instale requisitos: `pip install -r requirements.txt`
+4.  Inicie: `python app.py`
+
+---
 
 ## 📄 Licença
 
-MIT License - sinta-se à vontade para usar e modificar para seus próprios setups.
+Distribuído sob a licença MIT. Veja `LICENSE` para mais informações.
+
+---
+**Desenvolvido por Gabriel Bolzani para [AditivaFlow](https://aditivaflow.com.br)**

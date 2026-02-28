@@ -1,0 +1,22 @@
+name: "AditivaFlow Hub"
+version: "1.0.0"
+slug: "aditivaflow_hub"
+description: "Gateway centralizado para conectar impressoras 3D ao AditivaFlow"
+url: "https://github.com/gabrielbolzani/3d_printer_connection_hub"
+arch:
+  - armhf
+  - armv7
+  - aarch64
+  - amd64
+  - i386
+init: false
+map:
+  - config:rw
+options:
+  log_level: info
+schema:
+  log_level: "list(none|error|warn|info|debug)?"
+panel_icon: "mdi:printer-3d"
+panel_title: "AditivaFlow Hub"
+ingress: true
+ingress_port: 5000
