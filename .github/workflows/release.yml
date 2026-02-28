@@ -48,15 +48,16 @@ jobs:
         run: |
           mkdir -p package/deployments
           cp -r app.py printer_drivers.py logger_config.py requirements.txt templates/ package/
-          cp -r deployments/linux package/deployments/
+          cp -r deployments/ package/
+          cp -r addon/ package/
           mv AditivaFlowHub.exe package/AditivaFlowHub-Windows.exe
-          tar -czvf aditivaflow-hub-v$(echo ${GITHUB_REF#refs/tags/v}).tar.gz -C package .
+          tar -czvf aditivaflow-hub.tar.gz -C package .
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            aditivaflow-hub-*.tar.gz
+            aditivaflow-hub.tar.gz
             AditivaFlowHub-Windows.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
