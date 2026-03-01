@@ -6,7 +6,7 @@ import socket
 import webbrowser
 import tkinter as tk
 from tkinter import messagebox
-from PIL import Image, ImageTk
+from PIL import Image
 import pystray
 from pystray import MenuItem as item
 
@@ -44,24 +44,40 @@ class HubLauncher:
         self.check_status_loop()
 
     def setup_icon(self):
-        try:
-            icon_dir = sys._MEIPASS if getattr(sys, 'frozen', False) else os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-            png_path = os.path.join(icon_dir, 'favicon-32x32.png')
-            ico_path = os.path.join(icon_dir, 'favicon.ico')
-            
-            if os.path.exists(png_path):
-                img = Image.open(png_path)
-                self.photo = ImageTk.PhotoImage(img)
-                self.root.iconphoto(True, self.photo)
-                self.tray_image = img
-            else:
-                self.tray_image = Image.new('RGB', (32, 32), color='blue')
-                
-            if os.path.exists(ico_path):
-                self.root.iconbitmap(ico_path)
-        except Exception as e:
-            print(f"Erro no ícone: {e}")
-            self.tray_image = Image.new('RGB', (32, 32), color='blue')
+        """
+        No Windows, a única forma 100% confiável de definir o ícone da 
+        janela, da barra de tarefas e do Alt+Tab é usar iconbitmap com um
+        arquivo .ico. O iconphoto com PNG muitas vezes cai na pena padrão.
+        """
+        self.tray_image = None
+        
+        if getattr(sys, 'frozen', False):
+            # Dentro do executável PyInstaller
+            base_dir = sys._MEIPASS
+        else:
+            # Rodando direto pelo Python
+            base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+        
+        ico_path = os.path.join(base_dir, 'favicon.ico')
+        png_path = os.path.join(base_dir, 'favicon-32x32.png')
+        
+        # Ícone da Janela / Barra de Tarefas / Alt+Tab (requer .ico no Windows)
+        if os.path.exists(ico_path):
+            try:
+                self.root.iconbitmap(default=ico_path)
+            except Exception as e:
+                print(f"Aviso iconbitmap: {e}")
+        
+        # Ícone da Bandeja (System Tray) — usa PNG via Pillow
+        if os.path.exists(png_path):
+            try:
+                self.tray_image = Image.open(png_path).convert("RGBA")
+            except Exception as e:
+                print(f"Aviso tray image: {e}")
+        
+        if self.tray_image is None:
+            # Fallback: quadrado azul simples
+            self.tray_image = Image.new('RGBA', (32, 32), color=(30, 100, 200, 255))
 
     def setup_ui(self):
         self.root.configure(bg="#1a1a1a")

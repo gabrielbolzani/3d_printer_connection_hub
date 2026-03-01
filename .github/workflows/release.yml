@@ -24,8 +24,8 @@ jobs:
           
       - name: Build EXE
         run: |
-          python -c "from PIL import Image; Image.open('favicon-32x32.png').save('favicon.ico', format='ICO')"
-          pyinstaller --noconsole --onefile --paths "." --hidden-import app --hidden-import PIL --hidden-import pystray --add-data "templates;templates" --icon "favicon.ico" --name "AditivaFlowHub" deployments/windows/hub_gui.py
+          python -c "from PIL import Image; img = Image.open('favicon-32x32.png'); img.save('favicon.ico', format='ICO', sizes=[(16,16),(24,24),(32,32),(48,48),(64,64)]); print('ICO gerado')"
+          pyinstaller --noconsole --onefile --paths "." --hidden-import app --hidden-import PIL --hidden-import pystray --add-data "templates;templates" --add-data "favicon.ico;." --add-data "favicon-32x32.png;." --icon "favicon.ico" --name "AditivaFlowHub" deployments/windows/hub_gui.py
           
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
