@@ -251,11 +251,14 @@ class HubLauncher:
     # Config
     # ------------------------------------------------------------------
     def import_config(self):
-        """Permite ao usuário escolher um config.json externo e copiá-lo."""
+        """
+        Importa config.json e, se encontrado na mesma pasta, auth_token.json também.
+        O servidor é parado durante a operação e reiniciado depois.
+        """
         was_running = self.is_server_running()
         if was_running:
             if not messagebox.askyesno("Importar Config",
-                                       "O servidor será parado para importar o config.\nContinuar?"):
+                                       "O servidor será parado para importar as configurações.\nContinuar?"):
                 return
             self.stop_server()
 
@@ -266,33 +269,63 @@ class HubLauncher:
         if not path:
             return
 
+        source_dir = os.path.dirname(path)
+        imported = []
+        errors = []
+
+        # ---------- config.json ----------
         try:
-            # Valida se é um JSON válido antes de substituir
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
             if not isinstance(data, list):
-                messagebox.showerror("Erro", "O arquivo selecionado não é um config válido (deve ser uma lista JSON).")
+                messagebox.showerror("Erro", "O arquivo selecionado não é um config.json válido\n(deve ser uma lista JSON).")
                 return
 
-            # Faz backup do config atual se existir
+            # Backup do config atual
             if os.path.exists(CONFIG_FILE):
-                backup = CONFIG_FILE + '.bak'
-                shutil.copy2(CONFIG_FILE, backup)
+                shutil.copy2(CONFIG_FILE, CONFIG_FILE + '.bak')
 
             shutil.copy2(path, CONFIG_FILE)
-            messagebox.showinfo("Sucesso",
-                                f"Config importado com sucesso!\n"
-                                f"{len(data)} impressora(s) carregada(s).\n\n"
-                                f"Dica: backup do config anterior salvo em:\n{CONFIG_FILE}.bak")
+            imported.append(f"✅ config.json — {len(data)} impressora(s)")
 
         except json.JSONDecodeError:
             messagebox.showerror("Erro", "O arquivo selecionado não é um JSON válido.")
+            return
         except Exception as e:
-            messagebox.showerror("Erro ao importar", str(e))
+            messagebox.showerror("Erro ao importar config.json", str(e))
+            return
+
+        # ---------- auth_token.json (mesmo diretório) ----------
+        auth_src = os.path.join(source_dir, 'auth_token.json')
+        auth_dst = os.path.join(CONFIG_DIR, 'auth_token.json')
+        if os.path.exists(auth_src):
+            try:
+                with open(auth_src, 'r', encoding='utf-8') as f:
+                    token_data = json.load(f)
+                token_val = token_data.get('token', '')
+
+                # Backup do token atual
+                if os.path.exists(auth_dst):
+                    shutil.copy2(auth_dst, auth_dst + '.bak')
+
+                shutil.copy2(auth_src, auth_dst)
+                masked = token_val[:6] + '…' + token_val[-4:] if len(token_val) > 10 else token_val
+                imported.append(f"✅ auth_token.json — token: {masked}")
+            except Exception as e:
+                errors.append(f"⚠️ auth_token.json: {e}")
+        else:
+            errors.append("ℹ️ auth_token.json não encontrado na mesma pasta (não importado)")
+
+        # ---------- Resumo ----------
+        summary = "\n".join(imported)
+        if errors:
+            summary += "\n\n" + "\n".join(errors)
+        messagebox.showinfo("Importação Concluída", summary)
 
         if was_running:
             self.start_server()
+
 
     def open_config_folder(self):
         """Abre o Explorer na pasta onde o config.json está salvo."""
