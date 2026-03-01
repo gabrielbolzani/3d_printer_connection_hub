@@ -3,10 +3,10 @@
 
 a = Analysis(
     ['deployments\\windows\\hub_gui.py'],
-    pathex=[],
+    pathex=['.'],
     binaries=[],
     datas=[('templates', 'templates')],
-    hiddenimports=['PIL', 'pystray'],
+    hiddenimports=['app', 'PIL', 'pystray'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

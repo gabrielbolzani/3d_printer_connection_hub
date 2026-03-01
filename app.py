@@ -794,30 +794,35 @@ def aditivaflow_sync_loop():
         
         time.sleep(5) # Intervalo entre ciclos de sync
 
+def save_usage_periodically():
+    while KEEP_RUNNING:
+        time.sleep(300) # Save every 5 minutes
+        config = load_config()
+        if not config: continue
+        changed = False
+        for pr in PRINTERS:
+            current_usage = round(pr.status.get('total_usage', 0), 4)
+            for p_cfg in config:
+                if p_cfg['id'] == pr.config['id']:
+                    if abs(p_cfg.get('total_usage', 0) - current_usage) > 0.0001:
+                        p_cfg['total_usage'] = current_usage
+                        changed = True
+        if changed:
+            save_config(config)
+            log_info(f"[System] Horas de uso persistidas no config.json")
+
+def start_background_tasks():
+    global KEEP_RUNNING
+    KEEP_RUNNING = True
+    log_info("[System] Iniciando serviços de background...")
+    update_printers_once()
+    threading.Thread(target=save_usage_periodically, daemon=True, name="UsageSaver").start()
+    threading.Thread(target=polling_loop, daemon=True, name="PollingLoop").start()
+    threading.Thread(target=aditivaflow_sync_loop, daemon=True, name="CloudSync").start()
+
 if __name__ == '__main__':
     # Flask reloader will run this twice. We only want to start threads in the child process.
     if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
-        log_info("[System] Iniciando serviços de background...")
-        update_printers_once()
-        
-        def save_usage_periodically():
-            while True:
-                time.sleep(300) # Save every 5 minutes
-                config = load_config()
-                changed = False
-                for pr in PRINTERS:
-                    current_usage = round(pr.status.get('total_usage', 0), 4)
-                    for p_cfg in config:
-                        if p_cfg['id'] == pr.config['id']:
-                            if abs(p_cfg.get('total_usage', 0) - current_usage) > 0.0001:
-                                p_cfg['total_usage'] = current_usage
-                                changed = True
-                if changed:
-                    save_config(config)
-                    log_info(f"[System] Horas de uso persistidas no config.json")
-
-        threading.Thread(target=save_usage_periodically, daemon=True, name="UsageSaver").start()
-        threading.Thread(target=polling_loop, daemon=True, name="PollingLoop").start()
-        threading.Thread(target=aditivaflow_sync_loop, daemon=True, name="CloudSync").start()
+        start_background_tasks()
     
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=True, use_debugger=False)
