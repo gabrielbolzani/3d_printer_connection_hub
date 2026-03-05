@@ -593,34 +593,43 @@ def aditivaflow_sync_loop():
             try:
                 status = p.get_status()
                 
+                # Helpers para garantir arredondamento antes de enviar
+                def safe_round(val, decimals=2):
+                    try: return round(float(val), decimals)
+                    except: return 0
+                
+                def safe_int(val):
+                    try: return int(float(val))
+                    except: return 0
+
                 # Preparar payload conforme especificação
                 payload = {
                     "sync_code": sync_code,
                     "state": status.get('state', 'offline'),
-                    "temp_nozzle": status.get('temp_nozzle', 0),
-                    "temp_bed": status.get('temp_bed', 0),
-                    "target_nozzle": status.get('target_nozzle', 0),
-                    "target_bed": status.get('target_bed', 0),
-                    "progress": status.get('progress', 0),
+                    "temp_nozzle": safe_round(status.get('temp_nozzle', 0)),
+                    "temp_bed": safe_round(status.get('temp_bed', 0)),
+                    "target_nozzle": safe_round(status.get('target_nozzle', 0)),
+                    "target_bed": safe_round(status.get('target_bed', 0)),
+                    "progress": safe_round(status.get('progress', 0), 2),
                     "filename": status.get('filename', ''),
-                    "remaining_time": status.get('remaining_time', 0) * 60,
-                    "remaining_time_seconds": status.get('remaining_time', 0) * 60,
-                    "total_estimated_seconds": int(status.get('total_duration', 0)) * 60,
-                    "layer": status.get('layer', 0),
-                    "total_layers": status.get('total_layers', 0),
-                    "total_usage": status.get('total_usage', 0.0),
+                    "remaining_time": safe_int(status.get('remaining_time', 0) * 60),
+                    "remaining_time_seconds": safe_int(status.get('remaining_time', 0) * 60),
+                    "total_estimated_seconds": safe_int(status.get('total_duration', 0) * 60),
+                    "layer": safe_int(status.get('layer', 0)),
+                    "total_layers": safe_int(status.get('total_layers', 0)),
+                    "total_usage": safe_round(status.get('total_usage', 0.0), 4),
                     "printer_type": p.type,
                     "ip": p.ip,
                     "serial": p.config.get('serial', ''),
                     "speed_level": status.get('speed_level'),
-                    "print_weight": status.get('print_weight', 0),
+                    "print_weight": safe_round(status.get('print_weight', 0)),
                     "active_tray_name": status.get('active_tray_name', ''),
                     "firmware_version": status.get('firmware_update', {}).get('current', ''),
                     "print_error": status.get('print_error'),
                     "led_val": status.get('led_val'),
                     "fan_val": status.get('fan_val'),
-                    "print_duration": int(status.get('print_duration', 0)) * 60,
-                    "total_duration": int(status.get('total_duration', 0)) * 60
+                    "print_duration": safe_int(status.get('print_duration', 0) * 60),
+                    "total_duration": safe_int(status.get('total_duration', 0) * 60)
                 }
                 
                 # Normalizar estado conforme pedido
