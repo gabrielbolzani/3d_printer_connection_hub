@@ -8,6 +8,7 @@ import signal
 import sys
 import requests
 import base64
+from datetime import datetime
 from printer_drivers import create_printer_from_config
 from concurrent.futures import ThreadPoolExecutor
 
