@@ -50,8 +50,8 @@ jobs:
           cp -r app.py printer_drivers.py logger_config.py requirements.txt templates/ package/
           cp -r deployments/ package/
           cp -r addon/ package/
-          mv AditivaFlowHub.exe package/AditivaFlowHub-Windows.exe
           tar -czvf aditivaflow-hub.tar.gz -C package .
+          mv AditivaFlowHub.exe AditivaFlowHub-Windows.exe
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
