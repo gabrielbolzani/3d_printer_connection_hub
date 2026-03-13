@@ -250,6 +250,8 @@ class MoonrakerPrinter(BasePrinter):
                 if 'fan' in res:
                     self.status['fan_val'] = int(res['fan'].get('speed', 0) * 100)
                 
+                if 'temperature_sensor chamber_temp' in res:
+                    self.status['chamber_temp'] = res['temperature_sensor chamber_temp'].get('temperature', 0)
                 
                 # Remaining time and Finish time from virtual_sdcard or print_stats
                 rem_time = 0

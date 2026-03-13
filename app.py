@@ -602,19 +602,77 @@ def aditivaflow_sync_loop():
                     try: return int(float(val))
                     except: return 0
 
+                # Normalizar estado conforme pedido
+                state_map = {
+                    'printing': 'printing', 'running': 'printing',
+                    'paused': 'paused', 'error': 'error',
+                    'complete': 'complete', 'finish': 'complete', 'success': 'complete',
+                    'idle': 'idle', 'ready': 'idle', 'standby': 'standby', 'off': 'off', 'offline': 'off',
+                    'cancelled': 'idle', 'stopped': 'idle'
+                }
+                curr_state = str(status.get('state', 'offline')).lower()
+                mapped_state = state_map.get(curr_state, 'idle')
+
+                # Dados de rastreamento para histórico
+                if p.config['id'] not in PREVIOUS_PRINTER_STATES:
+                    PREVIOUS_PRINTER_STATES[p.config['id']] = {'state': 'offline', 'started_at': None}
+                prev_data = PREVIOUS_PRINTER_STATES[p.config['id']]
+
+                prev_state = prev_data['state'].lower()
+                is_printing_now = curr_state in ['printing', 'running']
+                is_printing_prev = prev_state in ['printing', 'running']
+                is_finished_now = curr_state in ['idle', 'complete', 'finish', 'success', 'ready', 'cancelled', 'stopped', 'error', 'failed']
+                
+                # Capturar hora de início
+                if is_printing_now and not prev_data.get('started_at'):
+                    elapsed_secs = safe_int(status.get('print_duration', 0) * 60)
+                    if elapsed_secs > 0:
+                        prev_data['started_at'] = (datetime.now() - timedelta(seconds=elapsed_secs)).isoformat()
+                    else:
+                        prev_data['started_at'] = datetime.now().isoformat()
+                    log_cloud(f"[{p.name}] Impressão iniciada às {prev_data['started_at']}")
+                
+                if is_printing_prev and is_finished_now:
+                    log_cloud(f"Detetado fim de impressão para {p.name}. Enviando histórico...")
+                    try:
+                        hist_result = "success"
+                        if curr_state in ['error', 'failed']:
+                            hist_result = "failed"
+                        elif curr_state in ['cancelled', 'stopped']:
+                            hist_result = "cancelled"
+
+                        history_payload = {
+                            "sync_code": sync_code,
+                            "filename": status.get('filename', ''),
+                            "started_at": prev_data.get('started_at') or datetime.now().isoformat(),
+                            "duration_seconds": int(status.get('print_duration', 0)) * 60,
+                            "weight_grams": float(status.get('print_weight', 0)),
+                            "filament_type": status.get('active_tray_name', ''),
+                            "result": hist_result,
+                            "avg_temp_nozzle": float(status.get('temp_nozzle', 0)),
+                            "avg_temp_bed": float(status.get('temp_bed', 0))
+                        }
+                        
+                        # POST separado para histórico (print-complete)
+                        requests.post(f"{base_url}/hub/print-complete", headers=headers, json=history_payload, timeout=10)
+                        log_cloud(f"Histórico de {p.name} sincronizado com sucesso.")
+                        prev_data['started_at'] = None # Reset
+                    except Exception as e:
+                        log_error(f"Erro ao sincronizar histórico: {e}")
+
+                prev_data['state'] = curr_state
+
                 # Preparar payload conforme especificação
                 payload = {
                     "sync_code": sync_code,
-                    "state": status.get('state', 'offline'),
+                    "state": mapped_state,
                     "temp_nozzle": safe_round(status.get('temp_nozzle', 0)),
                     "temp_bed": safe_round(status.get('temp_bed', 0)),
                     "target_nozzle": safe_round(status.get('target_nozzle', 0)),
                     "target_bed": safe_round(status.get('target_bed', 0)),
+                    "chamber_temp": safe_round(status.get('chamber_temp', 0)),
                     "progress": safe_round(status.get('progress', 0), 2),
                     "filename": status.get('filename', ''),
-                    "remaining_time": safe_int(status.get('remaining_time', 0) * 60),
-                    "remaining_time_seconds": safe_int(status.get('remaining_time', 0) * 60),
-                    "total_estimated_seconds": safe_int(status.get('total_duration', 0) * 60),
                     "layer": safe_int(status.get('layer', 0)),
                     "total_layers": safe_int(status.get('total_layers', 0)),
                     "total_usage": safe_round(status.get('total_usage', 0.0), 4),
@@ -624,79 +682,35 @@ def aditivaflow_sync_loop():
                     "speed_level": status.get('speed_level'),
                     "print_weight": safe_round(status.get('print_weight', 0)),
                     "active_tray_name": status.get('active_tray_name', ''),
-                    "firmware_version": status.get('firmware_update', {}).get('current', ''),
+                    "firmware_version": status.get('firmware_update', {}).get('current', '') if isinstance(status.get('firmware_update'), dict) else status.get('firmware_version', ''),
                     "print_error": status.get('print_error'),
                     "led_val": status.get('led_val'),
                     "fan_val": status.get('fan_val'),
-                    "print_duration": safe_int(status.get('print_duration', 0) * 60),
-                    "total_duration": safe_int(status.get('total_duration', 0) * 60)
+                    "fan_aux": status.get('fan_aux', 0),
+                    "fan_chamber": status.get('fan_chamber', 0),
+                    "ams": status.get('ams', []),
+                    "hms": status.get('hms', []),
+                    "remaining_time": safe_int(status.get('remaining_time', 0) * 60)
                 }
-                
-                # Normalizar estado conforme pedido
-                state_map = {
-                    'printing': 'printing', 'running': 'printing',
-                    'paused': 'paused', 'error': 'error',
-                    'complete': 'complete', 'finish': 'complete', 'success': 'complete',
-                    'idle': 'idle', 'ready': 'idle', 'standby': 'standby', 'off': 'off', 'offline': 'off'
-                }
-                curr_state = str(status.get('state', 'offline')).lower()
-                payload['state'] = state_map.get(curr_state, 'idle')
 
-                # IDs da Nuvem
+                # Timestamps de controle
+                if mapped_state == "complete":
+                    payload["completed_at"] = datetime.now().isoformat()
+                else:
+                    if prev_data.get('started_at'):
+                        payload["started_at"] = prev_data.get('started_at')
+                    
+                    payload["elapsed_time"] = safe_int(status.get('print_duration', 0) * 60)
+                    payload["total_estimated_time"] = safe_int(status.get('total_duration', 0) * 60)
+                    
+                    rem_sec = safe_int(status.get('remaining_time', 0) * 60)
+                    if rem_sec > 0:
+                        payload["estimated_end_at"] = (datetime.now() + timedelta(seconds=rem_sec)).isoformat()
+
+                # IDs da Nuvem apenas em variavel local para comandos
                 machine_id = CLOUD_METADATA['machines'].get(sync_code)
-                payload['user_id'] = user_id
-                payload['machine_id'] = machine_id
 
-                # Dados de rastreamento para histórico
-                if p.config['id'] not in PREVIOUS_PRINTER_STATES:
-                    PREVIOUS_PRINTER_STATES[p.config['id']] = {'state': 'offline', 'started_at': None}
-                prev_data = PREVIOUS_PRINTER_STATES[p.config['id']]
-
-                # Detecção de Início e Conclusão de Impressão
-                prev_state = prev_data['state'].lower()
-                is_printing_now = curr_state in ['printing', 'running']
-                is_printing_prev = prev_state in ['printing', 'running']
-                is_finished_now = curr_state in ['idle', 'complete', 'finish', 'success', 'ready']
-                
-                # Capturar hora de início
-                if is_printing_now and not is_printing_prev:
-                    prev_data['started_at'] = datetime.now().isoformat()
-                    log_cloud(f"[{p.name}] Impressão iniciada às {prev_data['started_at']}")
-                
-                if is_printing_prev and is_finished_now:
-                    log_cloud(f"Detetado fim de impressão para {p.name}. Enviando histórico...")
-                    try:
-                        history_payload = {
-                            "action": "sync_print_history",
-                            "machine_id": machine_id,
-                            "prints": [
-                                {
-                                    "filename": status.get('filename'),
-                                    "status": "completed",
-                                    "started_at": prev_data.get('started_at'),
-                                    "completed_at": datetime.now().isoformat(),
-                                    "print_duration_seconds": int(status.get('print_duration', 0)) * 60,
-                                    "estimated_total_seconds": int(status.get('total_duration', 0)) * 60,
-                                    "weight_grams": status.get('print_weight', 0),
-                                    "filament_weight_grams": status.get('print_weight', 0), # Bambu weight já é o consumo
-                                    "filament_used": status.get('active_tray_name', ''),
-                                    "layer_count": status.get('total_layers', 0),
-                                    "bed_temp": status.get('temp_bed', 0),
-                                    "nozzle_temp": status.get('temp_nozzle', 0),
-                                    "thumbnail_url": f"https://iwsqfjngeicyrcdowdbi.supabase.co/storage/v1/object/public/machine-media/camera/{user_id}/{machine_id}/latest.jpg" if user_id and machine_id else None
-                                }
-                            ]
-                        }
-                        # Enviar para o endpoint de API geral com a action solicitada
-                        requests.post(base_url, headers=headers, json=history_payload, timeout=10)
-                        log_cloud(f"Histórico de {p.name} sincronizado com sucesso.")
-                        prev_data['started_at'] = None # Reset
-                    except Exception as e:
-                        log_error(f"Erro ao sincronizar histórico: {e}")
-
-                prev_data['state'] = curr_state
-
-                # 1. Câmera Handling (Bucket Upload)
+                # 1. Câmera Handling (Base64 only)
                 frame = None
                 img_info = ""
                 if hasattr(p, 'last_frame') and p.last_frame:
@@ -706,19 +720,9 @@ def aditivaflow_sync_loop():
                     frame = p.get_snapshot()
                     img_info = " [Snapshot]"
                 
-                if frame and user_id and machine_id:
-                    try:
-                        storage_url = "https://iwsqfjngeicyrcdowdbi.supabase.co/storage/v1/object/machine-media"
-                        cam_path = f"camera/{user_id}/{machine_id}/latest.jpg"
-                        storage_headers = {
-                            'Authorization': f'Bearer {token}', 
-                            'x-device-token': token,
-                            'Content-Type': 'image/jpeg'
-                        }
-                        requests.put(f"{storage_url}/{cam_path}", headers=storage_headers, data=frame, timeout=8)
-                        img_info += f" {len(frame)/1024:.1f}KB (Bucket)"
-                    except Exception as e:
-                        log_error(f"Erro upload câmera {p.name}: {e}")
+                if frame:
+                    payload["camera_frame_base64"] = base64.b64encode(frame).decode('utf-8')
+                    img_info += f" {len(frame)/1024:.1f}KB"
                 
                 thumb_info = ""
                 cover = status.get('cover_image')
@@ -741,7 +745,6 @@ def aditivaflow_sync_loop():
                         if not b64_img.startswith("data:"):
                             b64_img = "data:image/png;base64," + b64_img
                         payload["thumbnail_base64"] = b64_img
-                        payload["cover_image_base64"] = b64_img
                         thumb_info = f" [Thumb: {len(b64_img)*0.75/1024:.1f}KB]"
 
                 # Enviar telemetria
