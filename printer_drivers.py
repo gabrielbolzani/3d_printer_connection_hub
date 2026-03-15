@@ -542,7 +542,9 @@ class BambuCameraThread(threading.Thread):
                             except (OSError, ValueError):
                                 break
                                 
-                            if not ready[0]: continue
+                            # Evitar loop infinito no select se houver dados pendentes no buffer SSL
+                            if not ready[0] and sslSock.pending() == 0:
+                                continue
                             
                             dr = sslSock.recv(16384)
                             if not dr: break
