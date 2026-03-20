@@ -1410,6 +1410,11 @@ CARD BUILDER
                             <div class="stat-lbl">Wi-Fi Signal</div>
                             <div class="stat-val" style="font-size:0.7rem; color:${wifiSignalColor(p.wifi_signal)}">${p.wifi_signal} dBm</div>
                         </div>` : ''}
+                        ${p.chamber_temp !== undefined ? `
+                        <div class="stat-box" style="padding: 5px;">
+                            <div class="stat-lbl">Chamber Temp</div>
+                            <div class="stat-val" style="font-size:0.7rem; color:${p.chamber_temp > 45 ? '#ff7b72' : '#58a6ff'}">${p.chamber_temp}°C</div>
+                        </div>` : ''}
                         ${(p.type === 'bambu' && p.active_tray_name) ? `
                         <div class="stat-box" style="padding: 5px;" title="UUID: ${p.active_tray_uuid || 'N/A'}">
                             <div class="stat-lbl">Active Tray</div>
@@ -1551,8 +1556,8 @@ CARD BUILDER
                     <div class="hms-box">
                         ${p.hms.map(h => `
                             <div class="hms-item">
-                                <span><i class="fas fa-exclamation-triangle"></i> HMS ${h.attr.toString(16).toUpperCase()}</span>
-                                <a href="https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/${h.attr.toString(16).padStart(8, '0').toUpperCase()}" target="_blank">WIKI</a>
+                                <span><i class="fas fa-exclamation-triangle"></i> ${h.message || `HMS ${h.attr.toString(16).toUpperCase()}`}</span>
+                                <a href="https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/${h.hms_code || h.attr.toString(16).padStart(8, '0').toUpperCase()}" target="_blank">WIKI</a>
                             </div>
                         `).join('')}
                     </div>
@@ -1561,7 +1566,7 @@ CARD BUILDER
                 ${p.ams && p.ams.length > 0 ? (() => {
                 const units = {};
                 p.ams.forEach(t => {
-                    if (!units[t.ams]) units[t.ams] = { humidity: t.humidity, trays: [] };
+                    if (!units[t.ams]) units[t.ams] = { humidity: t.humidity, temp: t.temp || 0, trays: [] };
                     units[t.ams].trays.push(t);
                 });
 
@@ -1569,8 +1574,12 @@ CARD BUILDER
                         <div class="ams-unit-container" style="margin-bottom:15px;">
                             <div class="ams-label">
                                 ${parseInt(unitId) === 254 ? 'Carretel Externo' : `AMS ${parseInt(unitId) + 1}`} 
-                                <span style="margin-left:auto; font-size:0.65rem; background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px; color:var(--text-2);">
-                                    ${parseInt(unitId) === 254 ? '' : `<i class="fas fa-tint"></i> Umidade: ${units[unitId].humidity}`}
+                                <span style="margin-left:auto; font-size:0.65rem; background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px; color:var(--text-2); display:flex; align-items:center; gap:8px;">
+                                    ${parseInt(unitId) === 254 ? '' : `
+                                        <span><i class="fas fa-tint"></i> ${units[unitId].humidity}%</span>
+                                        <span style="opacity:0.3">|</span>
+                                        <span><i class="fas fa-thermometer-half"></i> ${units[unitId].temp}°C</span>
+                                    `}
                                 </span>
                             </div>
                             <div class="ams-grid">

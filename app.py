@@ -8,7 +8,7 @@ import signal
 import sys
 import requests
 import base64
-from datetime import datetime
+from datetime import datetime, timedelta
 from printer_drivers import create_printer_from_config
 from concurrent.futures import ThreadPoolExecutor
 
@@ -679,13 +679,16 @@ def aditivaflow_sync_loop():
                     "printer_type": p.type,
                     "ip": p.ip,
                     "serial": p.config.get('serial', ''),
+                    "wifi_signal": status.get('wifi_signal', 0),
                     "speed_level": status.get('speed_level'),
                     "print_weight": safe_round(status.get('print_weight', 0)),
                     "active_tray_name": status.get('active_tray_name', ''),
+                    "active_tray_uuid": status.get('active_tray_uuid', ''),
                     "firmware_version": status.get('firmware_update', {}).get('current', '') if isinstance(status.get('firmware_update'), dict) else status.get('firmware_version', ''),
+                    "firmware_version_latest": status.get('firmware_update', {}).get('latest', '') if isinstance(status.get('firmware_update'), dict) else '',
                     "print_error": status.get('print_error'),
                     "led_val": status.get('led_val'),
-                    "fan_val": status.get('fan_val'),
+                    "fan_val": status.get('fan_part') if p.type == 'bambu' else status.get('fan_val'),
                     "fan_aux": status.get('fan_aux', 0),
                     "fan_chamber": status.get('fan_chamber', 0),
                     "ams": status.get('ams', []),

@@ -12,7 +12,7 @@
         "refresh_interval": 5000,
         "enabled": true,
         "platform_token": "6XBDUY",
-        "total_usage": 1313.0186,
+        "total_usage": 1329.1081,
         "custom_camera": false
     },
     {
@@ -28,7 +28,7 @@
         "refresh_interval": 3000,
         "enabled": true,
         "platform_token": "5G3APH",
-        "total_usage": 1101.6632,
+        "total_usage": 1201.9113,
         "custom_camera": false
     },
     {
@@ -44,7 +44,7 @@
         "enabled": true,
         "camera_refresh": false,
         "platform_token": "ZVUN8T",
-        "total_usage": 1311.0,
+        "total_usage": 1363.4544,
         "custom_camera": false
     },
     {

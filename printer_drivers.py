@@ -13,6 +13,7 @@ import zipfile
 import io
 import base64
 import xml.etree.ElementTree as ET
+import sys
 from datetime import datetime, timedelta
 from logger_config import log_info, log_error, log_debug, log_warn
 
@@ -48,6 +49,60 @@ BAMBU_FILAMENTS = {
     "GFU00": "Bambu TPU 95A HF", "GFU01": "Bambu TPU 95A", "GFU02": "Bambu TPU for AMS",
     "GFU98": "Generic TPU for AMS", "GFU99": "Generic TPU"
 }
+
+# HMS Diagnostic Mapping
+HMS_DATA = {}
+
+def load_hms_data():
+    global HMS_DATA
+    try:
+        # Possíveis caminhos: local, no bundle (_MEIPASS) ou pasta do script
+        paths = [
+            'hms_pt-br.json',
+            os.path.join(getattr(sys, '_MEIPASS', ''), 'hms_pt-br.json'),
+            os.path.join(os.path.dirname(__file__), 'hms_pt-br.json')
+        ]
+        for path in paths:
+            if path and os.path.exists(path):
+                with open(path, 'r', encoding='utf-8') as f:
+                    HMS_DATA = json.load(f)
+                    log_info(f"HMS: {len(HMS_DATA.get('device_hms', {})) + len(HMS_DATA.get('device_error', {}))} códigos carregados de {path}")
+                    return
+    except Exception as e:
+        log_error(f"Erro ao carregar HMS Data: {e}")
+
+def get_hms_desc(code):
+    """
+    Retorna a descrição de um código HMS em português.
+    :param code: Código em hex (8 ou 16 caracteres)
+    """
+    if not HMS_DATA:
+        return ""
+    
+    # Normalizar (remover underscores se houver)
+    clean_code = code.replace("_", "").upper()
+    
+    for cat in ['device_hms', 'device_error', 'device_info']:
+        if cat in HMS_DATA:
+            # 1. Tenta código completo (16 ou 8)
+            if clean_code in HMS_DATA[cat]:
+                entry = HMS_DATA[cat][clean_code]
+                if isinstance(entry, dict) and entry:
+                    return list(entry.keys())[0]
+            
+            # 2. Se for 16, tenta apenas os primeiros 8 (categoria/erro geral)
+            if len(clean_code) == 16:
+                short = clean_code[:8]
+                if short in HMS_DATA[cat]:
+                    entry = HMS_DATA[cat][short]
+                    if isinstance(entry, dict) and entry:
+                        return list(entry.keys())[0]
+    return ""
+
+# Inicializar HMS
+import os
+load_hms_data()
+
 
 def get_bambu_filament_name(idx):
     if not idx: return ""
@@ -480,104 +535,96 @@ class BambuCameraThread(threading.Thread):
 
     def run(self):
         self.setName(f"BambuCamera-{self.ip}")
-        print(f"[{self.ip}] Iniciando thread da câmera (Match Exemplo)...")
+        log_info(f"[{self.ip}] Iniciando thread da câmera (Bambu/X1C)...")
         
         username = 'bblp'
         port = 6000
-        
-        # Payload de autenticação - Montagem byte a byte idêntica ao exemplo funcional
         auth_data = bytearray()
-        auth_data += struct.pack("<I", 0x40)   # Payload size (64 bytes)
-        auth_data += struct.pack("<I", 0x3000) # Type
-        auth_data += struct.pack("<I", 0)      # Seq
-        auth_data += struct.pack("<I", 0)      # Reserved
-        
-        # Username (32 bytes)
-        for i in range(len(username)):
-            auth_data += struct.pack("<c", username[i].encode('ascii'))
-        for i in range(32 - len(username)):
-            auth_data += struct.pack("<x")
-            
-        # Access Code (32 bytes) - Respeita o case fornecido pelo usuário
-        for i in range(len(self.access_code)):
-            auth_data += struct.pack("<c", self.access_code[i].encode('ascii'))
-        for i in range(32 - len(self.access_code)):
-            auth_data += struct.pack("<x")
+        auth_data += struct.pack("<I", 0x40)
+        auth_data += struct.pack("<I", 0x3000)
+        auth_data += struct.pack("<I", 0)
+        auth_data += struct.pack("<I", 0)
+        for c in username: auth_data += struct.pack("<c", c.encode('ascii'))
+        for i in range(32 - len(username)): auth_data += struct.pack("<x")
+        for c in self.access_code: auth_data += struct.pack("<c", c.encode('ascii'))
+        for i in range(32 - len(self.access_code)): auth_data += struct.pack("<x")
 
-        # Contexto SSL - Refinado para X1C
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-        ctx.set_ciphers('DEFAULT@SECLEVEL=1:AES128-SHA')
-        # Desabilita protocolos inseguros mas mantém TLS 1.2
-        ctx.options |= ssl.OP_NO_SSLv2 | ssl.OP_NO_SSLv3 | ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1
+        ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
 
+        # Payload format for each image is:
+        # 16 byte header:
+        #   Bytes 0:3   = little endian payload size for the jpeg image (does not include this header).
+        #   Bytes 4:7   = 0x00000000
+        #   Bytes 8:11  = 0x00000001
+        #   Bytes 12:15 = 0x00000000
+        # These first 16 bytes are always delivered by themselves.
+        
+        # A1/A1 Mini can be very sensitive to reading speed.
+        
         while not self._stop_event.is_set():
             try:
-                # Usar socket puro para ter controle total do timeout antes do wrap
-                sock = socket.create_connection((self.ip, port), timeout=3)
-                sock.settimeout(3)
-                # server_hostname=None to avoid SNI issues with IP addresses on some firmware
-                try:
-                    sslSock = ctx.wrap_socket(sock, server_hostname=None)
-                except:
-                    sock.close()
-                    raise
-                
-                with sslSock:
-                    log_debug(f"[{self.ip}] Câmera: Conexão SSL estabelecida (Match Exemplo).")
-                    
-                    # Atraso crucial para a X1C processar o handshake antes do auth
-                    time.sleep(0.5)
-                    sslSock.sendall(auth_data)
-                    
-                    buffer = bytearray()
+                # SSL Context as per example (optimized for Bambu)
+                ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+                ctx.set_ciphers('DEFAULT@SECLEVEL=1:AES128-SHA')
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
+
+                with socket.create_connection((self.ip, port), timeout=10) as sock:
+                    sslSock = ctx.wrap_socket(sock, server_hostname=self.ip)
+                    sslSock.write(auth_data)
                     sslSock.setblocking(False)
+                    
+                    img = None
+                    payload_size = 0
                     
                     while not self._stop_event.is_set():
                         try:
-                            # Proteção contra soquetes fechados prematuramente
-                            try:
-                                ready = select.select([sslSock], [], [], 0.5)
-                            except (OSError, ValueError):
-                                break
-                                
-                            # Evitar loop infinito no select se houver dados pendentes no buffer SSL
-                            if not ready[0] and sslSock.pending() == 0:
-                                continue
-                            
-                            dr = sslSock.recv(16384)
-                            if not dr: break
-                            buffer += dr
-                            
-                            while len(buffer) >= 16:
-                                payload_size = int.from_bytes(buffer[0:4], byteorder='little')
-                                if payload_size > 1000000 or payload_size < 100:
-                                    buffer = buffer[1:]
-                                    continue
-                                    
-                                if len(buffer) < 16 + payload_size:
-                                    break
-                                
-                                img_data = buffer[16:16+payload_size]
-                                if img_data.startswith(b'\xff\xd8'):
-                                    self.callback(bytes(img_data))
-                                
-                                buffer = buffer[16+payload_size:]
-                                
+                            # Use 8192 for potentially faster draining of A1/P1 buffer
+                            dr = sslSock.recv(8192)
                         except ssl.SSLWantReadError:
+                            # 1s (from example) might be too slow for A1 if the buffer fills up.
+                            # Using 0.1s for better responsiveness.
+                            if self._stop_event.wait(0.1): break
                             continue
-                        except Exception as e:
-                            log_debug(f"[{self.ip}] Câmera Loop: {e}")
+                        except:
                             break
+
+                        if not dr:
+                            break
+
+                        if img is not None:
+                            img += dr
+                            if len(img) > payload_size:
+                                # Data exceeded expected size, reset sync
+                                img = None
+                            elif len(img) == payload_size:
+                                # JPEG check: A1 might use different APPn segments than X1. 
+                                # Strict FF D8 FF E0 check might fail on some A1 frames.
+                                if img.startswith(b'\xff\xd8') and img.endswith(b'\xff\xd9'):
+                                    self.callback(bytes(img))
+                                # Reset for next header
+                                img = None
+                        elif len(dr) == 16:
+                            # Validated Header check (more robust than just length 16)
+                            # Header usually looks like [size, 0, 1, 0] in 32-bit units
+                            if dr[4:16] == b'\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00':
+                                img = bytearray()
+                                payload_size = int.from_bytes(dr[0:3], byteorder='little')
+                            else:
+                                # Not a valid header, wait for next chunk
+                                img = None
+                        else:
+                            # Not a header and we weren't expecting data. Reset and wait.
+                            img = None
+
             except Exception as e:
                 if not self._stop_event.is_set():
-                    # print(f"[{self.ip}] Câmera Erro: {e}")
-                    pass
-                if self._stop_event.wait(5): break
-            except Exception as e:
-                log_debug(f"[{self.ip}] Câmera: Erro de conexão/Auth: {e}")
-                if self._stop_event.wait(5): break
+                    log_debug(f"[{self.ip}] Câmera Bambu (A1/X1): {e}")
+                    if self._stop_event.wait(5): break
 
     def stop(self):
         self._stop_event.set()
@@ -751,8 +798,25 @@ class BambuPrinter(BasePrinter):
                     self.status['temp_bed'] = p['bed_temper']
                 if 'bed_target_temper' in p:
                     self.status['target_bed'] = p['bed_target_temper']
+                if 'layer_num' in p:
+                    self.status['layer'] = p['layer_num']
+                if 'total_layer_num' in p:
+                    self.status['total_layers'] = p['total_layer_num']
                 if 'chamber_temper' in p:
-                    self.status['chamber_temp'] = p['chamber_temper']
+                    self.status['chamber_temp'] = round(p['chamber_temper'])
+                elif 'chamber_temper' in data:
+                    self.status['chamber_temp'] = round(data['chamber_temper'])
+                
+                # New firmware puts the chamber temperature in a different place (inside 'device' which is inside 'print').
+                ctc_temp = p.get("device", {}).get("ctc", {}).get("info", {}).get("temp", None)
+                if ctc_temp is not None:
+                    self.status['chamber_temp'] = ctc_temp & 0xFFFF
+                else:
+                    # Fallback check at root level for 'device'
+                    ctc_temp_root = data.get("device", {}).get("ctc", {}).get("info", {}).get("temp", None)
+                    if ctc_temp_root is not None:
+                        self.status['chamber_temp'] = ctc_temp_root & 0xFFFF
+
                 if 'subtask_name' in p:
                     new_file = p['subtask_name']
                     prev_state = self.status.get('state', '').lower()
@@ -812,15 +876,40 @@ class BambuPrinter(BasePrinter):
                         self.status['wifi_signal'] = int(p['wifi_signal'].replace('dBm', ''))
                     except: pass
                 if 'hms' in p:
-                    self.status['hms'] = p['hms']
+                    processed_hms = []
+                    for h in p['hms']:
+                        if isinstance(h, dict):
+                            attr = h.get('attr', 0)
+                            code = h.get('code', 0)
+                            # Código de 16 dígitos para busca (sem underscores)
+                            hms_code_lookup = f'{int(attr / 0x10000):04X}{attr & 0xFFFF:04X}{int(code / 0x10000):04X}{code & 0xFFFF:04X}'
+                            # Código formatado para exibição
+                            hms_code_display = f'{int(attr / 0x10000):04X}_{attr & 0xFFFF:04X}_{int(code / 0x10000):04X}_{code & 0xFFFF:04X}'
+                            
+                            desc = get_hms_desc(hms_code_lookup)
+                            msg = f"Atenção: HMS Code {hms_code_display} - {desc}" if desc else f"Atenção: HMS Code {hms_code_display}"
+                            
+                            processed_hms.append({
+                                'attr': attr,
+                                'code': code,
+                                'hms_code': hms_code_display,
+                                'description': desc,
+                                'message': msg
+                            })
+                    self.status['hms'] = processed_hms
                 
                 # Print Error e HMS handling
                 if 'print_error' in p:
                     err_code = p['print_error']
-                    self.status['print_error'] = {
-                        'code': err_code,
-                        'message': f"Erro {err_code:X}" if err_code != 0 else ""
-                    }
+                    if err_code != 0:
+                        hex_err = f"{err_code:08X}"
+                        desc = get_hms_desc(hex_err)
+                        self.status['print_error'] = {
+                            'code': err_code,
+                            'message': f"Erro {hex_err} - {desc}" if desc else f"Erro {hex_err}"
+                        }
+                    else:
+                        self.status['print_error'] = None
             # AMS e VT Tray (Carretel Externo)
             # Podem estar no topo ou dentro de 'print'
             ams_data = data.get('ams') or p.get('ams', {})
@@ -850,7 +939,11 @@ class BambuPrinter(BasePrinter):
             # 1. Processar Unidades AMS
             for unit in ams_data.get('ams', []):
                 unit_id = int(unit.get('id', 0))
-                humidity = unit.get('humidity', '??')
+                # humidity_index (1-5) e humidity_raw (porcentagem)
+                h_index = int(unit.get('humidity', 0))
+                h_pct = int(unit.get('humidity_raw', 0))
+                ams_temp = float(unit.get('temp', 0))
+                
                 for t in unit.get('tray', []):
                     tray_id = int(t.get('id', 0))
                     is_active = (unit_id == active_ams and tray_id == active_tray)
@@ -882,7 +975,9 @@ class BambuPrinter(BasePrinter):
                         'color': f_color,
                         'remain': f_remain,
                         'uuid': f_uuid,
-                        'humidity': humidity,
+                        'humidity': h_pct or h_index, # Fallback index se raw não existir
+                        'humidity_pct': h_pct,
+                        'temp': ams_temp,
                         'active': is_active,
                         'empty': is_empty
                     })
@@ -931,6 +1026,22 @@ class BambuPrinter(BasePrinter):
                 else:
                     self.status['active_tray_name'] = 'None'
                     self.status['active_tray_uuid'] = ''
+
+            # Firmware Upgrade State
+            upgrade = data.get('upgrade_state') or p.get('upgrade_state')
+            if upgrade:
+                self.status['firmware_update']['available'] = (upgrade.get('new_version_state') == 1)
+                # Tentar pegar versão ota do P1/X1
+                new_ver_list = upgrade.get('new_ver_list', [])
+                for v in new_ver_list:
+                    if v.get('name') == 'ota':
+                        self.status['firmware_update']['current'] = v.get('cur_ver', self.status['firmware_update']['current'])
+                        self.status['firmware_update']['latest'] = v.get('new_ver', '')
+                
+                # Caso do X1 que as vezes manda direto no objeto
+                if 'ota_new_version_number' in upgrade:
+                    latest = upgrade['ota_new_version_number']
+                    if latest: self.status['firmware_update']['latest'] = latest
 
             # Dados do comando "info" (get_version)
             info = data.get('info', {})
