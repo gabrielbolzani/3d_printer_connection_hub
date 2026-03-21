@@ -14,6 +14,15 @@ from concurrent.futures import ThreadPoolExecutor
 
 app = Flask(__name__)
 
+@app.context_processor
+def inject_version():
+    try:
+        with open("VERSION", "r") as f:
+            v = f.read().strip()
+    except:
+        v = "Dev"
+    return dict(app_version=v)
+
 CONFIG_FILE = 'config.json'
 PRINTERS = []
 STATUS_CACHE = {}

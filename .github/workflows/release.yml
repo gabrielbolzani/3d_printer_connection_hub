@@ -30,12 +30,16 @@ jobs:
           python -c "from PIL import Image; img = Image.open('favicon-32x32.png'); img.save('favicon.ico', format='ICO', sizes=[(16,16),(24,24),(32,32),(48,48),(64,64)]); print('ICO gerado')"
           pyinstaller --noconsole --onefile --paths "." --hidden-import app --hidden-import PIL --hidden-import pystray --add-data "templates;templates" --add-data "favicon.ico;." --add-data "favicon-32x32.png;." --add-data "hms_pt-br.json;." --icon "favicon.ico" --name "AditivaFlowHub" deployments/windows/hub_gui.py
           
+      - name: Build Installer
+        run: |
+          iscc installer.iss
+          
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
         with:
           name: AditivaFlowHub-Windows
-          path: dist/AditivaFlowHub.exe
-
+          path: dist/
+          
   create-release:
     needs: build-windows
     runs-on: ubuntu-latest
@@ -46,20 +50,24 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: AditivaFlowHub-Windows
+          path: dist
 
       - name: Create Linux Package
         run: |
           mkdir -p package/deployments
-          cp -r app.py printer_drivers.py logger_config.py requirements.txt templates/ hms_pt-br.json package/
+          cp -r app.py printer_drivers.py logger_config.py requirements.txt templates/ hms_pt-br.json VERSION package/
           cp -r deployments/ package/
           tar -czvf aditivaflow-hub.tar.gz -C package .
-          mv AditivaFlowHub.exe AditivaFlowHub-Windows.exe
+          mv dist/AditivaFlowHub.exe AditivaFlowHub-Windows.exe
+          mv dist/AditivaFlowHub-Setup.exe AditivaFlowHub-Setup.exe
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          generate_release_notes: true
           files: |
             aditivaflow-hub.tar.gz
             AditivaFlowHub-Windows.exe
+            AditivaFlowHub-Setup.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

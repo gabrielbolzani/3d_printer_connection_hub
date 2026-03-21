@@ -9,33 +9,29 @@ Projetado para ser versátil, o Hub pode rodar como um serviço de background no
 ## 📦 Versões Disponíveis
 
 ### 🪟 Windows (Desktop App)
-Ideal para quem utiliza um PC ou Servidor Windows. Acompanha uma interface simplificada para controle.
+Ideal para quem utiliza um PC ou Servidor Windows.
 
-*   **Instalação:** 
-    1.  Baixe o `AditivaFlowHub.exe` na aba [Releases](https://github.com/gabrielbolzani/3d_printer_connection_hub/releases).
-    2.  Execute o aplicativo. Na primeira vez, ele configurará automaticamente o ambiente Python necessário.
-    3.  Clique em **"Ligar Servidor"**.
-*   **Destaque:** Opção "Iniciar com o Windows" inclusa na interface.
+*   **Instalação (Instalador Automático):** 
+    1.  Baixe o `AditivaFlowHub-Setup.exe` na aba [Releases](https://github.com/gabrielbolzani/3d_printer_connection_hub/releases).
+    2.  Ao executar, caso o Windows mostre **"O Windows protegeu o seu computador"**, clique em **"Mais informações"** e depois em **"Executar assim mesmo"** (o aplicativo é seguro, mas como não possui certificado digital pago, o SmartScreen exibe este alerta).
+    3.  Siga as instruções para instalar. O Hub criará atalhos e pode ser configurado para iniciar automaticamente com o Windows.
+*   **Instalação (Portátil):** 
+    1.  Baixe o `AditivaFlowHub-Windows.exe` e execute diretamente onde desejar.
 
 ### 🐧 Linux (Server/Raspberry Pi)
-A melhor opção para máquinas dedicadas (headless). Roda como um serviço do sistema (`systemd`).
+A melhor opção para máquinas dedicadas. Pode ser executado nativamente via script ou, preferencialmente, pelo Docker.
 
-*   **Instalação via Terminal (CURL):**
+*   **Instalação via Docker (Recomendado):**
+    ```bash
+    git clone https://github.com/gabrielbolzani/3d_printer_connection_hub.git
+    cd 3d_printer_connection_hub
+    docker-compose up -d --build
+    ```
+
+*   **Instalação Nativa via Terminal (CURL):**
     ```bash
     sudo curl -sSL https://raw.githubusercontent.com/gabrielbolzani/3d_printer_connection_hub/main/deployments/linux/install.sh | bash
     ```
-*   **Comandos úteis:**
-    *   Ver status: `sudo systemctl status aditivaflow-hub`
-    *   Ver logs: `journalctl -u aditivaflow-hub -f`
-
-### 🏠 Home Assistant (Add-on)
-Integre o Hub diretamente no seu ecossistema de casa inteligente.
-
-*   **Instalação:**
-    1.  No Home Assistant, vá em **Configurações** > **Add-ons** > **Loja de Add-ons**.
-    2.  Clique nos três pontos (superior direito) > **Repositórios**.
-    3.  Adicione a URL deste repositório.
-    4.  Instale o add-on **AditivaFlow Hub**.
 
 ---
 

@@ -1,0 +1,13 @@
+services:
+  hub:
+    build: .
+    container_name: aditivaflow-hub
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./config.json:/app/config.json
+      - ./auth_token.json:/app/auth_token.json
+    environment:
+      - TZ=America/Sao_Paulo
+    network_mode: "host"
