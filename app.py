@@ -246,6 +246,7 @@ def console_page():
     return render_template('console.html')
 
 @app.route('/auth')
+@app.route('/configuracoes')
 def auth():
     return render_template('auth.html')
 
@@ -355,9 +356,60 @@ def save_token_api():
 @app.route('/api/get_token', methods=['GET'])
 def get_token_api():
     token = load_token()
-    # Mask token for security
-    masked = token # In production we might want to mask it: '*' * (len(token)-4) + token[-4:] if len(token) > 4 else token
+    masked = token
     return jsonify({'token': masked})
+
+@app.route('/api/backup', methods=['GET'])
+def backup_config():
+    """Gera um backup completo: config.json + auth_token.json"""
+    try:
+        printers = load_config() or []
+        token = load_token()
+        backup = {
+            'backup_version': '1',
+            'created_at': datetime.now().isoformat(),
+            'app_version': open('VERSION').read().strip() if os.path.exists('VERSION') else 'dev',
+            'auth_token': token or None,
+            'printers': printers
+        }
+        return jsonify({'success': True, 'backup': backup})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/restore', methods=['POST'])
+def restore_config():
+    """Restaura backup: escreve config.json e auth_token.json"""
+    try:
+        data = request.json
+        if not data or data.get('backup_version') != '1':
+            return jsonify({'success': False, 'message': 'Arquivo de backup inválido ou versão incompatível'}), 400
+
+        # Restaurar impressoras
+        printers = data.get('printers', [])
+        if not isinstance(printers, list):
+            return jsonify({'success': False, 'message': 'Campo printers inválido'}), 400
+        save_config(printers)
+
+        # Restaurar token
+        token = data.get('auth_token')
+        token_restored = False
+        if token:
+            save_token_file(token)
+            token_restored = True
+
+        # Recarregar impressoras em memória
+        global PRINTERS
+        for pr in PRINTERS:
+            try: pr.stop()
+            except: pass
+        PRINTERS.clear()
+        update_printers_once()
+
+        log_info(f"[System] Backup restaurado: {len(printers)} impressoras, token={'sim' if token_restored else 'não'}")
+        return jsonify({'success': True, 'printers_restored': len(printers), 'token_restored': token_restored})
+    except Exception as e:
+        log_error(f"[System] Erro ao restaurar backup: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/printers', methods=['GET'])
 def get_printers():
