@@ -257,6 +257,7 @@ class BasePrinter:
         s['custom_camera'] = self.config.get('custom_camera', False)
         s['camera_refresh'] = self.config.get('camera_refresh', False)
         s['refresh_interval'] = self.config.get('refresh_interval', 5000)
+        s['platform_token'] = self.config.get('platform_token', '')
         s['enabled'] = self.config.get('enabled', True)
         s['last_update'] = self.last_update
         return s
@@ -918,7 +919,8 @@ class BambuPrinter(BasePrinter):
             'active_tray_name': 'None',
             'active_tray_uuid': '',
             'firmware_update': {'current': '', 'latest': '', 'available': False},
-            'print_error': {'code': 0, 'message': ''}
+            'print_error': {'code': 0, 'message': ''},
+            'started_at': None
         })
         # total_usage já está no BasePrinter.status
         self.start_time = None
@@ -1032,6 +1034,7 @@ class BambuPrinter(BasePrinter):
                         # Resetar thumbnail ao começar impressão nova ou reimpressão
                         self.status['cover_image'] = None
                         self.print_start_time = time.time()
+                        self.status['started_at'] = datetime.now().strftime("%H:%M")
                         
                     self.status['state'] = new_state
                 if 'mc_percent' in p:
@@ -1067,12 +1070,32 @@ class BambuPrinter(BasePrinter):
                     if ctc_temp_root is not None:
                         self.status['chamber_temp'] = ctc_temp_root & 0xFFFF
 
-                if 'subtask_name' in p:
-                    new_file = p['subtask_name']
-                    prev_state = self.status.get('state', '').lower()
-                    
+                # Gerenciamento de Tarefa (Nome do Arquivo e Thumbnail)
+                new_file = p.get('subtask_name', '')
+                prev_state = self.status.get('state', '').lower()
+                
+                # Se estiver em repouso (idle, ready, success, off) e sem arquivo ativo vindo no MQTT
+                # Ou se o campo subtask_name veio vazio explicitamente
+                is_idle = curr_state in ['idle', 'ready', 'success', 'finish', 'off']
+                
+                if (is_idle and not new_file) or (new_file == "" and self.current_filename):
+                    if self.current_filename:
+                        self.current_filename = ""
+                        self.status['filename'] = ""
+                        self.status['task_name'] = ""
+                        self.status['cover_image'] = None
+                        self.status['total_duration'] = 0
+                        self.status['print_duration'] = 0
+                        self.status['started_at'] = None
+                        self.status['finish_time'] = None
+                        self.status['layer'] = 0
+                        self.status['total_layers'] = 0
+                        self.status['remaining_time'] = 0
+                        self.print_start_time = None
+                
+                elif new_file:
                     # Forçar atualização se o arquivo mudar OU se começar a imprimir (mesmo que o arquivo seja o mesmo)
-                    force_update = (new_file != self.current_filename and new_file) or (curr_state == 'printing' and prev_state != 'printing')
+                    force_update = (new_file != self.current_filename) or (curr_state in ['printing', 'running'] and prev_state not in ['printing', 'running'])
                     
                     if force_update:
                         self.current_filename = new_file
