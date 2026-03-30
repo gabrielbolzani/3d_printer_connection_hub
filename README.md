@@ -1,100 +1,208 @@
-# 🚀 AditivaFlow Printer Hub
+# 🚀 AditivaFlow Hub
 
-O **AditivaFlow Hub** é a ponte inteligente entre a sua fazenda de impressoras 3D local e a nuvem. Ele atua como um gateway centralizado: você o instala em um único computador ou servidor (Raspberry Pi, PC Windows, Servidor Linux) na mesma rede Wi-Fi/Local das suas impressoras, e ele se encarrega de conectar, traduzir e enviar toda a telemetria, streaming de câmera e controle diretamente para a plataforma [AditivaFlow](https://aditivaflow.com.br).
+> **Gerenciador centralizado de impressoras 3D** — conecta sua fazenda local à nuvem AditivaFlow, seja qual for a marca.
 
-Com o Hub configurado, suas máquinas descentralizadas (de diferentes marcas e sistemas) ganham uma **interface única, padronizada e acessível de qualquer lugar do mundo** via nuvem da AditivaFlow.
+O **AditivaFlow Hub** atua como gateway inteligente na sua rede local: instale em qualquer máquina (Raspberry Pi, PC Windows, servidor Linux), e ele conecta, traduz e envia telemetria, vídeo de câmera e controle de **todas as suas impressoras** diretamente para a plataforma [AditivaFlow](https://aditivaflow.com.br).
 
----
-
-## 🖨️ Equipamentos Compatíveis
-
-O ecossistema de impressão 3D é diverso, e o Hub resolve o problema de diferentes linguagens de comunicação. Atualmente, o Hub possui Suporte Nativo Plug-and-Play para os seguintes equipamentos:
-
-1. **Bambu Lab (Série X, Série P e Série A)**
-   - Integração via Cloud ou Modo LAN (MQTT Local).
-   - Suporte a leitura completa do sistema AMS (umidade, rolos, cor).
-   - Leitura de câmeras e atualização de status em tempo real.
-   - Sincronização inteligente dos avisos de erro (HMS).
-2. **Sistema Klipper (via Moonraker)**
-   - Compatível com qualquer impressora rodando Klipper (Voron, RatRig, Ender adaptada, Creality K1, etc).
-   - Controle nativo (Pausar, Retomar, Cancelar, Ajustar FANS), leitura macro, sensores e captura de Câmera Web via Moonraker API.
-3. **Elegoo (Resina)**
-   - Compatível com impressoras Elegoo da série Saturn (Saturn 3 Ultra, etc) e Mars conectadas à rede.
-   - Sincronização de status da resina e andamento da impressão via rede.
+![GitHub release (latest)](https://img.shields.io/github/v/release/gabrielbolzani/3d_printer_connection_hub?style=flat-square&color=2ea043)
+![GitHub license](https://img.shields.io/github/license/gabrielbolzani/3d_printer_connection_hub?style=flat-square)
 
 ---
 
-## 📦 Como Instalar (Opções de Lançamento)
+## 🖨️ Impressoras Suportadas
 
-Para facilitar a implantação, oferecemos arquivos pré-compilados e configurados na aba **[Releases](https://github.com/gabrielbolzani/3d_printer_connection_hub/releases)** deste repositório. Escolha o melhor para sua infraestrutura:
-
-### 🪟 Windows (Ideal para usuários comuns e PCs desktop)
-
-Se você tem um computador com Windows na mesma rede das impressoras e que fica sempre ligado:
-
-1. **Instalador Automático (Recomendado): `AditivaFlowHub-Setup.exe`**
-   - **Como usar:** Baixe e execute. Ele abrirá a tradicional tela de *Avançar > Instalar*. Ele configurará o Hub na sua máquina de forma totalmente automática, criará ícones e o iniciará em background (inclusve junto ao próprio Windows).
-   - *Aviso:* Como os executáveis Open Source ainda não são assinados com um certificado corporativo internacional, o Windows SmartScreen frequentemente exibe um aviso em uma tela azul dizendo: *"O Windows protegeu o seu computador"*. Você só precisa clicar em **Mais informações** e depois selecionar a opção visível de **Executar assim mesmo**. Fique tranquilo, todos os nossos arquivos das Releases do GitHub são seguros e verificados.
-   
-2. **Executável Portátil: `AditivaFlowHub-Windows.exe`**
-   - **Como usar:** Basta fazer o download do arquivo executável, alojá-lo numa pasta e abrí-lo quando for usar a ferramenta. Útil se você estiver realizando simulações, homologações ou não quiser deixar nada salvo na inicialização do Windows do seu servidor.
-
-### 🐧 Linux (Ideal para Servidores Linux e Raspberry Pi)
-
-A opção de menor consumo de energia e menor manutenção, caso esteja usando um computador embarcado e sem interfaces de vídeo dedicadas de forma embutida (headless).
-
-1. **Containers via Docker (A nossa recomendação máxima)**
-   Rodar no formato em container isola completamente o Hub, impedindo que conflito de bibliotecas Python quebre o sistema da sua base operacional.
-
-   **Passo-a-passo:**
-   - Use o GIT a fim de copiar a base atualizada em uma nova pasta:
-   ```bash
-   git clone https://github.com/gabrielbolzani/3d_printer_connection_hub.git
-   cd 3d_printer_connection_hub
-   docker-compose up -d --build
-   ```
-   - O argumento `-d` roda o container e libera o seu terminal. A partir de então a subida da porta web estará ativa na `5000` para navegação.
-
-2. **Baixando o Pacote Linux Direto (`aditivaflow-hub.tar.gz`)**
-   A aba de Releases disponibiliza também os scripts puristas dentro desse .zip (tar.gz). Você pode baixar, extrair em nível raiz e rodar as engrenagens sem auxílio de container executando manualmente as instruções virtuais: `pip install -r requirements.txt ; python app.py`. O uso dessa versão é recomendada se você sabe instalar e ativá-la pelo `SystemD` da sua máquina e configurar o auto-init.
-
-3. **Script Nativo via CURL (Automático)**
-   Script pré-agendado que lida com a inicialização direta de requisitos apt e a montagem direta como Serviço do SystemD:
-   ```bash
-   sudo curl -sSL https://raw.githubusercontent.com/gabrielbolzani/3d_printer_connection_hub/main/deployments/linux/install.sh | bash
-   ```
+| Marca / Sistema | Modelos | Recursos |
+|---|---|---|
+| **Bambu Lab** | X1C, X1E, P1S, P1P, A1, A1 Mini | MQTT LAN, câmera RTSP, AMS, HMS, telemetria completa |
+| **Klipper / Moonraker** | Voron, RatRig, Creality K1, Ender adaptada e qualquer Klipper | Câmera, controle de fans/LED, G-Code, Pause/Resume/Cancel |
+| **Elegoo (Resina)** | Saturn 3 Ultra, Mars series | Status via rede, andamento de impressão |
 
 ---
 
-## ⚙️ O que Configurar Inicialmente?
+## 📦 Instalação
 
-Não importa como você instalou (Windows Desktop, Linux nativo ou Docker), tudo opera local e é super fácil configurar.
-
-1. **Acessando o Dashboard Local:** No servidor local onde completou a configuração, abra um simples navegador e vá para o portal de administração do HUB: `http://localhost:5000` (ou caso você esteja configurando no Raspberry via Laptop na rede use: `http://NÚMERO-DO-IP-DO-SERVER:5000`).
-2. **Autenticação com a Nuvem:** Para que o controle ganhe asas e envie os relatórios pro seu provedor da nuvem, logue na sua interface da AditivaFlow Online, copie o seu `Token / Device Token`. Abra o painel lateral do seu aplicativo HUB na aba **Authentication** e salve ele ali para sempre. Essa trava vai garantir a criptografia e proteção da sua banda de envio.
-3. **Adicionando suas Máquinas Locais:** Volte para a Aba `Printers`, clique em Nova Impressora. E você inserirá:
-   - Tipo de máquina e Nome.
-   - Seu Local IP / Porta.
-   - *Se for Bambu:* Código de Acesso do app do celular, e o serial num.
-   - *Opcional*: Informar no fim a chave de `Platform Token` para se juntar à contabilidade automatizada da sua impressora na base virtual do AditivaFlow Cloud.
-
-*Pronto! Os painéis ficarão em sincronia e telemetria estará pulsando pela máquina da sua rede à AditivaFlow System Cloud!*
+Escolha o método ideal para o seu ambiente. Todos os executáveis prontos estão na aba **[Releases](https://github.com/gabrielbolzani/3d_printer_connection_hub/releases)**.
 
 ---
 
-## 👨‍💻 Contribuindo e Rodando a partir do Código-Fonte
+### 🪟 Windows — Instalador ou Executável Portátil
 
-Desenvolvedores ou entusiastas que queiram contribuir com melhorias:
-1. Faça o clone normal do Git: `git clone https://github.com/gabrielbolzani/3d_printer_connection_hub.git`
-2. Crie a venv local: `python -m venv venv` 
-3. Instale os requerimentos abertos: `pip install -r requirements.txt`
-4. Suba o Hub: `python app.py`
+**Melhor para:** Usuários comuns, PCs desktop, máquinas sem terminal.
+
+#### Opção A — Instalador automático *(Recomendado para Windows)*
+
+1. Baixe o arquivo `AditivaFlowHub-Setup.exe` na última **[Release](https://github.com/gabrielbolzani/3d_printer_connection_hub/releases/latest)**
+2. Execute e siga a tela de instalação *"Avançar → Instalar"*
+3. O Hub será iniciado automaticamente em background e junto ao Windows
+
+> **⚠️ Alerta do SmartScreen:** Como o executável não possui assinatura de código corporativa, o Windows pode exibir um aviso em tela azul. Clique em **"Mais informações"** → **"Executar assim mesmo"**. Os arquivos das Releases são 100% seguros e verificados pelo GitHub Actions.
+
+#### Opção B — Executável portátil *(sem instalação)*
+
+1. Baixe o arquivo `AditivaFlowHub-Windows.exe` na última **[Release](https://github.com/gabrielbolzani/3d_printer_connection_hub/releases/latest)**
+2. Coloque em qualquer pasta e execute quando quiser
+3. Ideal para testes, homologações ou sem intenção de deixar em background
 
 ---
 
-## 📄 Informações e Licenças
+### 🐧 Linux — Três opções de instalação
 
-Software desenhado e distribuído sob a licença **MIT**, moldado para apoiar Makers, Fazendas de Impressão de alta densidade e o belíssimo ecosistema que a Comunidade Livre impulsiona.
+**Melhor para:** Raspberry Pi, servidores headless, Proxmox, VPS.
 
-**Direção Geral e Desenvolvimento: Gabriel Bolzani**  
-Para mais detalhes sobre as instâncias da Nuvem e Painéis da Web da sua fábrica acesse:  [AditivaFlow](https://aditivaflow.com.br)
+---
+
+#### ⭐ Opção 1 — Instalador via `curl` *(Recomendado para Linux)*
+
+**Uma linha no terminal faz tudo automaticamente:** instala dependências do sistema, cria virtualenv Python, configura como serviço systemd e inicia o Hub.
+
+```bash
+sudo bash <(curl -sSL https://raw.githubusercontent.com/gabrielbolzani/3d_printer_connection_hub/main/install.sh)
+```
+
+O que o instalador faz:
+- ✅ Verifica e instala Python 3, pip, venv e FFmpeg (necessário para câmera X1C)
+- ✅ Baixa automaticamente a versão mais recente do GitHub Releases
+- ✅ Preserva seu `config.json` e `auth_token.json` em atualizações
+- ✅ Cria e ativa um serviço systemd (inicia com o sistema)
+- ✅ Exibe o IP local ao final para você acessar imediatamente
+
+Após a instalação, gerencie o serviço com:
+
+```bash
+# Ver logs em tempo real
+journalctl -fu aditivaflow-hub
+
+# Parar
+systemctl stop aditivaflow-hub
+
+# Reiniciar
+systemctl restart aditivaflow-hub
+
+# Atualizar para a versão mais recente (basta rodar o instalador de novo)
+sudo bash <(curl -sSL https://raw.githubusercontent.com/gabrielbolzani/3d_printer_connection_hub/main/install.sh)
+```
+
+---
+
+#### Opção 2 — Docker / Docker Compose *(Melhor isolamento)*
+
+**Melhor para:** quem quer isolamento total do ambiente Python sem afetar o sistema operacional base.
+
+```bash
+git clone https://github.com/gabrielbolzani/3d_printer_connection_hub.git
+cd 3d_printer_connection_hub
+docker-compose up -d --build
+```
+
+O Hub estará acessível em `http://localhost:5000`. O argumento `-d` libera o terminal e deixa o container rodando em background.
+
+Para atualizar:
+```bash
+git pull
+docker-compose down && docker-compose up -d --build
+```
+
+---
+
+#### Opção 3 — Pacote `.tar.gz` manual
+
+**Melhor para:** usuários avançados que querem controle total de onde e como o Hub está installado.
+
+1. Baixe o arquivo `aditivaflow-hub.tar.gz` na última **[Release](https://github.com/gabrielbolzani/3d_printer_connection_hub/releases/latest)**
+2. Extraia e instale manualmente:
+
+```bash
+tar -xzf aditivaflow-hub.tar.gz
+cd aditivaflow-hub
+
+# Criar virtualenv e instalar dependências
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Iniciar
+python app.py
+```
+
+Para configurar como serviço systemd permanente, crie o arquivo `/etc/systemd/system/aditivaflow-hub.service`:
+
+```ini
+[Unit]
+Description=AditivaFlow Hub
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/aditivaflow-hub
+ExecStart=/opt/aditivaflow-hub/venv/bin/python app.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+systemctl daemon-reload
+systemctl enable --now aditivaflow-hub
+```
+
+---
+
+## ⚙️ Configuração Inicial
+
+Independentemente do método de instalação, o processo de configuração é o mesmo:
+
+**1. Acesse o Dashboard**
+Abra o navegador e acesse:
+- `http://localhost:5000` (na mesma máquina)
+- `http://IP-DO-SERVIDOR:5000` (de outro dispositivo na rede)
+
+**2. Conecte à AditivaFlow Cloud** *(opcional)*
+- Na aba **Authentication**, cole seu *Device Token* copiado do painel [AditivaFlow](https://aditivaflow.com.br)
+- Isso habilita envio de telemetria, histórico de impressões e controle remoto pela nuvem
+
+**3. Adicione suas impressoras**
+- Clique em **"Nova Impressora"** e preencha:
+  - Tipo (Bambu Lab / Klipper / Elegoo) e nome
+  - IP local e porta
+  - *Se Bambu:* Número de série e Código de Acesso (visível no app Bambu Handy → configurações da impressora)
+  - *Opcional:* Platform Token para vincular a impressora ao seu painel AditivaFlow
+
+---
+
+## 💡 Qual método de instalação escolher?
+
+| Cenário | Método recomendado |
+|---|---|
+| Usuário Windows, desktop, sem conhecimento técnico | **Windows Setup (.exe)** |
+| Testes rápidos ou sem instalar permanentemente | **Windows Portátil (.exe)** |
+| Raspberry Pi ou servidor Linux pela primeira vez | **Instalador curl** ⭐ |
+| Ambiente de produção que exige isolamento máximo | **Docker Compose** |
+| Administrador Linux avançado com controle total | **Pacote .tar.gz manual** |
+| Desenvolvedor / contribuidor | **Código-fonte (clone do git)** |
+
+---
+
+## 👨‍💻 Rodando a partir do Código-Fonte
+
+Para contribuir ou testar funcionalidades em desenvolvimento:
+
+```bash
+git clone https://github.com/gabrielbolzani/3d_printer_connection_hub.git
+cd 3d_printer_connection_hub
+
+python -m venv venv
+source venv/bin/activate          # Linux/macOS
+# venv\Scripts\activate           # Windows
+
+pip install -r requirements.txt
+python app.py
+```
+
+---
+
+## 📄 Licença
+
+Distribuído sob a licença **MIT**. Projetado para Makers, fazendas de impressão 3D e a comunidade open source.
+
+**Desenvolvimento:** Gabriel Bolzani  
+**Plataforma:** [aditivaflow.com.br](https://aditivaflow.com.br)
