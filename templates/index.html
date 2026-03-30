@@ -1700,7 +1700,7 @@ FETCH & RENDER
                         const newCard = temp.firstElementChild;
                         const newCam = newCard.querySelector('.pcard-camera img');
 
-                        if (!p.camera_refresh && oldCam && newCam && oldCam.getAttribute('src').split('?')[0] === newCam.getAttribute('src').split('?')[0]) {
+                        if (!p.camera_refresh && p.type !== 'bambu' && oldCam && newCam && oldCam.getAttribute('src').split('?')[0] === newCam.getAttribute('src').split('?')[0]) {
                             newCam.replaceWith(oldCam);
                         }
 

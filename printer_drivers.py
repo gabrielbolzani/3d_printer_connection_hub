@@ -14,8 +14,75 @@ import io
 import base64
 import xml.etree.ElementTree as ET
 import sys
+import os
+import subprocess
 from datetime import datetime, timedelta
 from logger_config import log_info, log_error, log_debug, log_warn
+
+def get_ffmpeg_path():
+    import shutil
+    import zipfile
+    import platform
+    
+    # 1. Buscar no PATH do sistema
+    ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path: return ffmpeg_path
+    
+    # 2. Local persistente do AditivaFlow no AppData (sobrevive ao PyInstaller)
+    base_dir = os.environ.get('APPDATA', os.path.expanduser('~'))
+    local_bin = os.path.join(base_dir, "AditivaFlowHub", "bin")
+    if sys.platform == "win32":
+        local_ffmpeg = os.path.join(local_bin, "ffmpeg.exe")
+    else:
+        local_ffmpeg = os.path.join(local_bin, "ffmpeg")
+        
+    if os.path.exists(local_ffmpeg):
+        return local_ffmpeg
+        
+    # 3. Baixar automaticamente para usuários de Windows
+    if sys.platform == "win32":
+        try:
+            log_info(f"[System] FFmpeg não encontrado localmente. Baixando dependência em segundo plano (Apenas na primeira vez)...")
+            os.makedirs(local_bin, exist_ok=True)
+            zip_path = os.path.join(local_bin, "ffmpeg.zip")
+            url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+            
+            # Usando powershell silencioso para evitar dependências de SSL nativo
+            subprocess.run(["powershell", "-Command", f"$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -Uri '{url}' -OutFile '{zip_path}'"], check=True)
+            
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                for member in zip_ref.namelist():
+                    if member.endswith("ffmpeg.exe"):
+                        source = zip_ref.open(member)
+                        target = open(local_ffmpeg, "wb")
+                        with source, target:
+                            shutil.copyfileobj(source, target)
+                        break
+            
+            try: os.remove(zip_path)
+            except: pass
+            
+            log_info("[System] FFmpeg baixado com sucesso! A câmera agora está habilitada.")
+            if os.path.exists(local_ffmpeg):
+                return local_ffmpeg
+        except Exception as e:
+            log_error(f"[System] Falha ao tentar baixar o FFmpeg de forma automatizada: {e}")
+            
+    # 4. Outros caminhos de fallback
+    common_paths = [
+        "C:\\ffmpeg\\bin\\ffmpeg.exe",
+        "/usr/bin/ffmpeg",
+        "/usr/local/bin/ffmpeg",
+        "/opt/homebrew/bin/ffmpeg",
+        "/snap/bin/ffmpeg"
+    ]
+    for path in common_paths:
+        if os.path.exists(path):
+            return path
+            
+    return None
+
+
 
 # Bambu Lab Filament Mapping
 BAMBU_FILAMENTS = {
@@ -58,9 +125,9 @@ def load_hms_data():
     try:
         # Possíveis caminhos: local, no bundle (_MEIPASS) ou pasta do script
         paths = [
-            'hms_pt-br.json',
-            os.path.join(getattr(sys, '_MEIPASS', ''), 'hms_pt-br.json'),
-            os.path.join(os.path.dirname(__file__), 'hms_pt-br.json')
+            'hms_Classificado_pt-br.json',
+            os.path.join(getattr(sys, '_MEIPASS', ''), 'hms_Classificado_pt-br.json'),
+            os.path.join(os.path.dirname(__file__), 'hms_Classificado_pt-br.json')
         ]
         for path in paths:
             if path and os.path.exists(path):
@@ -73,11 +140,12 @@ def load_hms_data():
 
 def get_hms_desc(code):
     """
-    Retorna a descrição de um código HMS em português.
+    Retorna um dicionário com os dados de um código HMS em português.
     :param code: Código em hex (8 ou 16 caracteres)
+    :return: {"desc": str, "criticidade": int, "status": str} ou None
     """
     if not HMS_DATA:
-        return ""
+        return None
     
     # Normalizar (remover underscores se houver)
     clean_code = code.replace("_", "").upper()
@@ -88,7 +156,11 @@ def get_hms_desc(code):
             if clean_code in HMS_DATA[cat]:
                 entry = HMS_DATA[cat][clean_code]
                 if isinstance(entry, dict) and entry:
-                    return list(entry.keys())[0]
+                    desc_key = list(entry.keys())[0]
+                    dados = entry[desc_key]
+                    if isinstance(dados, dict):
+                        return {"desc": desc_key, "criticidade": dados.get("criticidade", 0), "status": dados.get("status", "")}
+                    return {"desc": desc_key, "criticidade": 0, "status": ""}
             
             # 2. Se for 16, tenta apenas os primeiros 8 (categoria/erro geral)
             if len(clean_code) == 16:
@@ -96,8 +168,12 @@ def get_hms_desc(code):
                 if short in HMS_DATA[cat]:
                     entry = HMS_DATA[cat][short]
                     if isinstance(entry, dict) and entry:
-                        return list(entry.keys())[0]
-    return ""
+                        desc_key = list(entry.keys())[0]
+                        dados = entry[desc_key]
+                        if isinstance(dados, dict):
+                            return {"desc": desc_key, "criticidade": dados.get("criticidade", 0), "status": dados.get("status", "")}
+                        return {"desc": desc_key, "criticidade": 0, "status": ""}
+    return None
 
 # Inicializar HMS
 import os
@@ -631,6 +707,161 @@ class BambuCameraThread(threading.Thread):
         # Não damos join aqui para não travar o loop principal, 
         # mas a thread é daemon então ok.
 
+class BambuRTSPProxyThread(threading.Thread):
+    def __init__(self, target_host, target_port):
+        super().__init__(daemon=True)
+        self.target_host = target_host
+        self.target_port = target_port
+        self.local_port = 0
+        self.server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_sock.bind(('127.0.0.1', 0))
+        self.local_port = self.server_sock.getsockname()[1]
+        self.server_sock.listen(1)
+        self._stop_event = threading.Event()
+
+    def run(self):
+        while not self._stop_event.is_set():
+            try:
+                self.server_sock.settimeout(1.0)
+                client_sock, addr = self.server_sock.accept()
+                threading.Thread(target=self._handle_client, args=(client_sock,), daemon=True).start()
+            except socket.timeout:
+                continue
+            except Exception as e:
+                break
+
+    def stop(self):
+        self._stop_event.set()
+        try:
+            self.server_sock.close()
+        except: pass
+
+    def _handle_client(self, client_sock):
+        try:
+            ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            ssl_ctx.check_hostname = False
+            ssl_ctx.verify_mode = ssl.CERT_NONE
+            target_sock = socket.create_connection((self.target_host, self.target_port), timeout=10.0)
+            tls_sock = ssl_ctx.wrap_socket(target_sock, server_hostname=self.target_host)
+            
+            proxy_url = f"rtsp://127.0.0.1:{self.local_port}".encode()
+            real_url = f"rtsps://{self.target_host}:{self.target_port}".encode()
+
+            def forward(src, dst, rewrite=False):
+                try:
+                    while not self._stop_event.is_set():
+                        data = src.recv(65536)
+                        if not data: break
+                        if rewrite and b" RTSP/1.0" in data:
+                            lines = data.split(b"\r\n")
+                            for i, line in enumerate(lines):
+                                if line.endswith(b" RTSP/1.0"):
+                                    lines[i] = line.replace(proxy_url, real_url)
+                                    break
+                            data = b"\r\n".join(lines)
+                        dst.sendall(data)
+                except: pass
+                finally:
+                    try: dst.close()
+                    except: pass
+                    try: src.close()
+                    except: pass
+
+            t1 = threading.Thread(target=forward, args=(client_sock, tls_sock, True), daemon=True)
+            t2 = threading.Thread(target=forward, args=(tls_sock, client_sock, False), daemon=True)
+            t1.start()
+            t2.start()
+            t1.join()
+            t2.join()
+        except Exception as e:
+            try: client_sock.close()
+            except: pass
+
+class BambuX1CCameraThread(threading.Thread):
+    def __init__(self, ip, access_code, callback):
+        super().__init__(daemon=True)
+        self.ip = ip
+        self.access_code = access_code
+        self.callback = callback
+        self._stop_event = threading.Event()
+        self.proxy = None
+        self.ffmpeg_proc = None
+
+    def stop(self):
+        self._stop_event.set()
+        if self.ffmpeg_proc and self.ffmpeg_proc.poll() is None:
+            self.ffmpeg_proc.terminate()
+            try:
+                self.ffmpeg_proc.wait(timeout=2)
+            except:
+                self.ffmpeg_proc.kill()
+        if self.proxy:
+            self.proxy.stop()
+
+    def run(self):
+        ffmpeg_path = get_ffmpeg_path()
+        if not ffmpeg_path:
+            log_error("FFmpeg not found. Cannot start X1C camera via RTSP.")
+            return
+            
+        self.proxy = BambuRTSPProxyThread(self.ip, 322)
+        self.proxy.start()
+        
+        camera_url = f"rtsp://bblp:{self.access_code}@127.0.0.1:{self.proxy.local_port}/streaming/live/1"
+        
+        cmd = [
+            ffmpeg_path,
+            "-y",
+            "-rtsp_transport", "tcp",
+            "-rtsp_flags", "prefer_tcp",
+            "-i", camera_url,
+            "-frames:v", "1",
+            "-f", "image2pipe",
+            "-vcodec", "mjpeg",
+            "-q:v", "2",
+            "-",
+        ]
+        
+        spawn_kwargs = {}
+        if sys.platform == "win32":
+            spawn_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+            
+        log_info(f"[{self.ip}] Iniciando thread da câmera X1C (Modo Snapshot/FFmpeg)...")
+        
+        while not self._stop_event.is_set():
+            try:
+                self.ffmpeg_proc = subprocess.Popen(
+                    cmd, 
+                    stdout=subprocess.PIPE, 
+                    stderr=subprocess.PIPE,
+                    **spawn_kwargs
+                )
+                
+                # Aguarda até no máximo 15s para baixar o frame e sair
+                try:
+                    stdout, stderr = self.ffmpeg_proc.communicate(timeout=15)
+                    if self.ffmpeg_proc.returncode == 0 and stdout and len(stdout) >= 100:
+                        self.callback(stdout)
+                    else:
+                        err_text = ""
+                        if stderr:
+                            err_text = stderr.decode(errors="replace")
+                        log_debug(f"[{self.ip}] FFmpeg retornou {self.ffmpeg_proc.returncode}. Erro: {err_text[:200]}")
+                except subprocess.TimeoutExpired:
+                    if self.ffmpeg_proc and self.ffmpeg_proc.poll() is None:
+                        self.ffmpeg_proc.kill()
+                    log_debug(f"[{self.ip}] Timeout capturando frame X1C")
+                        
+            except Exception as e:
+                log_debug(f"X1C ffmpeg error: {e}")
+                
+            if self.ffmpeg_proc and self.ffmpeg_proc.poll() is None:
+                self.ffmpeg_proc.terminate()
+                
+            # Tempo de espera entre os frames (para não sobrecarregar)
+            if self._stop_event.wait(0.5):
+                break
+
 # Helper for Implicit FTP TLS (used by Bambu Lab)
 class ImplicitFTP_TLS(ftplib.FTP_TLS):
     def __init__(self, *args, **kwargs):
@@ -723,8 +954,19 @@ class BambuPrinter(BasePrinter):
             time.sleep(2)
             
             if not self.cam_thread:
-                self.cam_thread = BambuCameraThread(self.ip, self.access_code, self.on_frame)
-                self.cam_thread.start()
+                # O X1C usa RTSP na porta 322 (prefixo de série começa com 00M, 00W, 00E)
+                # P1 / A1 usam porta 6000
+                is_x1c = self.serial and self.serial.startswith(("00M", "00W", "00E"))
+
+                if is_x1c:
+                    if get_ffmpeg_path():
+                        self.cam_thread = BambuX1CCameraThread(self.ip, self.access_code, self.on_frame)
+                        self.cam_thread.start()
+                    else:
+                        log_error(f"[{self.ip}] ALERTA: FFmpeg não instalado no Windows! A câmera da X1C não pode ser iniciada.")
+                else:
+                    self.cam_thread = BambuCameraThread(self.ip, self.access_code, self.on_frame)
+                    self.cam_thread.start()
         except Exception as e:
             log_error(f"[{self.ip}] Falha na conexão MQTT: {e}")
             self.status['state'] = 'offline'
@@ -783,7 +1025,15 @@ class BambuPrinter(BasePrinter):
             if p:
                 curr_state = p.get('gcode_state', '').lower() or self.status.get('state', '').lower()
                 if 'gcode_state' in p:
-                    self.status['state'] = curr_state
+                    new_state = p['gcode_state'].lower()
+                    prev_state = self.status.get('state', '').lower()
+                    
+                    if new_state in ['printing', 'running'] and prev_state not in ['printing', 'running']:
+                        # Resetar thumbnail ao começar impressão nova ou reimpressão
+                        self.status['cover_image'] = None
+                        self.print_start_time = time.time()
+                        
+                    self.status['state'] = new_state
                 if 'mc_percent' in p:
                     self.status['progress'] = p['mc_percent']
                 if 'mc_remaining_time' in p:
@@ -886,7 +1136,16 @@ class BambuPrinter(BasePrinter):
                             # Código formatado para exibição
                             hms_code_display = f'{int(attr / 0x10000):04X}_{attr & 0xFFFF:04X}_{int(code / 0x10000):04X}_{code & 0xFFFF:04X}'
                             
-                            desc = get_hms_desc(hms_code_lookup)
+                            hms_info = get_hms_desc(hms_code_lookup)
+                            if hms_info:
+                                desc = hms_info.get("desc", "")
+                                crit = hms_info.get("criticidade", 0)
+                                status_name = hms_info.get("status", "")
+                            else:
+                                desc = ""
+                                crit = 0
+                                status_name = ""
+
                             msg = f"Atenção: HMS Code {hms_code_display} - {desc}" if desc else f"Atenção: HMS Code {hms_code_display}"
                             
                             processed_hms.append({
@@ -894,7 +1153,9 @@ class BambuPrinter(BasePrinter):
                                 'code': code,
                                 'hms_code': hms_code_display,
                                 'description': desc,
-                                'message': msg
+                                'message': msg,
+                                'criticidade': crit,
+                                'status': status_name
                             })
                     self.status['hms'] = processed_hms
                 
@@ -903,10 +1164,21 @@ class BambuPrinter(BasePrinter):
                     err_code = p['print_error']
                     if err_code != 0:
                         hex_err = f"{err_code:08X}"
-                        desc = get_hms_desc(hex_err)
+                        hms_info = get_hms_desc(hex_err)
+                        if hms_info:
+                            desc = hms_info.get("desc", "")
+                            crit = hms_info.get("criticidade", 0)
+                            status_name = hms_info.get("status", "")
+                        else:
+                            desc = ""
+                            crit = 0
+                            status_name = ""
+                            
                         self.status['print_error'] = {
                             'code': err_code,
-                            'message': f"Erro {hex_err} - {desc}" if desc else f"Erro {hex_err}"
+                            'message': f"Erro {hex_err} - {desc}" if desc else f"Erro {hex_err}",
+                            'criticidade': crit,
+                            'status': status_name
                         }
                     else:
                         self.status['print_error'] = None
