@@ -200,9 +200,18 @@ python app.py
 
 ---
 
-## 📄 Licença
+## 📄 Licença e Propriedade Intelectual
 
-Distribuído sob a licença **MIT**. Projetado para Makers, fazendas de impressão 3D e a comunidade open source.
+Este software está protegido por uma **Licença de Código-Fonte Disponível Proprietária**.
 
-**Desenvolvimento:** Gabriel Bolzani  
+- ✅ Você **pode** visualizar, estudar o código e executar localmente para uso pessoal
+- ✅ Você **pode** sugerir melhorias, reportar bugs e enviar Pull Requests
+- ❌ Você **não pode** redistribuir, vender ou usar comercialmente sem autorização
+- ❌ Você **não pode** criar e publicar obras derivadas sem permissão
+
+Veja o arquivo [LICENSE](./LICENSE) para os termos completos.
+
+**Titular:** Gabriel Forza Juliatti Bolzani  
+**Marcas:** Aditivaflow / Aditiva Lab  
+**Contato:** gabriel@aditivaflow.com.br  
 **Plataforma:** [aditivaflow.com.br](https://aditivaflow.com.br)
