@@ -1,4 +1,5 @@
-from flask import Flask, render_template, request, jsonify, abort
+from flask import Flask, render_template, request, jsonify, abort, send_file
+import io
 import threading
 import time
 import json
@@ -25,6 +26,7 @@ def inject_version():
 
 CONFIG_FILE = 'config.json'
 PRINTERS = []
+PRINTERS_LOCK = threading.Lock()
 STATUS_CACHE = {}
 APP_START_TIME = time.time()
 APP_START_TIME = time.time()
@@ -158,36 +160,38 @@ def update_printers_once():
     if current_config is None:
         return
 
-    config_map = {p['id']: p for p in current_config}
+    config_map = {str(p['id']): p for p in current_config}
+    
+    with PRINTERS_LOCK:
+        printers_copy = list(PRINTERS)
     
     # Remove deleted printers
-    for p in PRINTERS:
-        pid = p.config['id']
+    for p in printers_copy:
+        pid = str(p.config['id'])
         if pid not in config_map:
             try: p.stop()
             except: pass
             if pid in STATUS_CACHE:
                 del STATUS_CACHE[pid]
-    PRINTERS[:] = [p for p in PRINTERS if p.config['id'] in config_map]
-
-    # Update existing or add new
-    current_ids = [p.config['id'] for p in PRINTERS]
-    
-    for p_conf in current_config:
-        if p_conf['id'] not in current_ids:
-            new_p = create_printer_from_config(p_conf)
-            if new_p:
-                PRINTERS.append(new_p)
-        else:
-            for p in PRINTERS:
-                if p.config['id'] == p_conf['id']:
-                    p.config = p_conf
-                    p.ip = p_conf.get('ip')
-                    break
-    
-    # Sort PRINTERS list to match config order
-    id_to_pos = {p['id']: i for i, p in enumerate(current_config)}
-    PRINTERS.sort(key=lambda p: id_to_pos.get(p.config['id'], 999))
+                
+    with PRINTERS_LOCK:
+        PRINTERS[:] = [p for p in PRINTERS if str(p.config['id']) in config_map]
+        current_ids = [str(p.config['id']) for p in PRINTERS]
+        
+        for p_conf in current_config:
+            if str(p_conf['id']) not in current_ids:
+                new_p = create_printer_from_config(p_conf)
+                if new_p:
+                    PRINTERS.append(new_p)
+            else:
+                for p in PRINTERS:
+                    if str(p.config['id']) == str(p_conf['id']):
+                        p.config = p_conf
+                        p.ip = p_conf.get('ip')
+                        break
+        
+        id_to_pos = {str(p['id']): i for i, p in enumerate(current_config)}
+        PRINTERS.sort(key=lambda p: id_to_pos.get(str(p.config['id']), 999))
 
 def update_p(p):
     try:
@@ -206,7 +210,11 @@ def polling_loop():
         try:
             update_printers_once()
             if not KEEP_RUNNING: break
-            for p in PRINTERS:
+            
+            with PRINTERS_LOCK:
+                printers_snap = list(PRINTERS)
+                
+            for p in printers_snap:
                 if not KEEP_RUNNING: break
                 try:
                     executor.submit(update_p, p)
@@ -225,7 +233,11 @@ def signal_handler(sig, frame):
     try:
         executor.shutdown(wait=False, cancel_futures=True)
     except: pass
-    for p in PRINTERS:
+    
+    with PRINTERS_LOCK:
+        printers_to_stop = list(PRINTERS)
+        
+    for p in printers_to_stop:
         try: p.stop()
         except: pass
     print("[System] Finalizado.")
@@ -399,10 +411,14 @@ def restore_config():
 
         # Recarregar impressoras em memória
         global PRINTERS
-        for pr in PRINTERS:
+        with PRINTERS_LOCK:
+            printers_old = list(PRINTERS)
+        for pr in printers_old:
             try: pr.stop()
             except: pass
-        PRINTERS.clear()
+            
+        with PRINTERS_LOCK:
+            PRINTERS.clear()
         update_printers_once()
 
         log_info(f"[System] Backup restaurado: {len(printers)} impressoras, token={'sim' if token_restored else 'não'}")
@@ -415,7 +431,10 @@ def restore_config():
 def get_printers():
     # Return printers in the order of the PRINTERS list (which matches config)
     ordered_status = []
-    for p in PRINTERS:
+    with PRINTERS_LOCK:
+        printers_list = list(PRINTERS)
+        
+    for p in printers_list:
         pid = p.config['id']
         if pid in STATUS_CACHE:
             ordered_status.append(STATUS_CACHE[pid])
@@ -426,7 +445,8 @@ def get_printers():
 
 @app.route('/api/camera/<printer_id>', methods=['GET'])
 def get_camera_frame(printer_id):
-    printer = next((p for p in PRINTERS if p.config['id'] == printer_id), None)
+    with PRINTERS_LOCK:
+        printer = next((p for p in PRINTERS if str(p.config['id']) == str(printer_id)), None)
     if printer:
         # Check for cached frame (Bambu)
         if hasattr(printer, 'last_frame') and printer.last_frame:
@@ -444,7 +464,8 @@ def get_camera_frame(printer_id):
 
 @app.route('/api/raw_status/<printer_id>', methods=['GET'])
 def raw_status(printer_id):
-    printer = next((p for p in PRINTERS if p.config['id'] == printer_id), None)
+    with PRINTERS_LOCK:
+        printer = next((p for p in PRINTERS if str(p.config['id']) == str(printer_id)), None)
     if printer:
         return jsonify({
             'config': printer.config,
@@ -452,6 +473,101 @@ def raw_status(printer_id):
             'last_update': printer.last_update
         })
     return jsonify({'error': 'Printer not found'}), 404
+
+@app.route('/api/bambu/files/<printer_id>', methods=['GET'])
+def get_bambu_files(printer_id):
+    category = request.args.get('category', 'files')
+    with PRINTERS_LOCK:
+        printer = next((p for p in PRINTERS if str(p.config['id']) == str(printer_id)), None)
+    if printer and hasattr(printer, 'list_bambu_files'):
+        files = printer.list_bambu_files(category)
+        return jsonify({'success': True, 'files': files})
+    return jsonify({'success': False, 'error': 'Printer not found or not a Bambu printer'}), 404
+
+@app.route('/api/bambu/delete_file', methods=['POST'])
+def delete_bambu_file():
+    data = request.json
+    p_id = data.get('id')
+    path = data.get('path')
+    with PRINTERS_LOCK:
+        printer = next((p for p in PRINTERS if str(p.config['id']) == str(p_id)), None)
+    if printer and hasattr(printer, 'delete_bambu_file'):
+        success = printer.delete_bambu_file(path)
+        return jsonify({'success': success})
+    return jsonify({'success': False, 'error': 'Not supported'}), 404
+
+@app.route('/api/bambu/download_file', methods=['GET'])
+def download_bambu_file():
+    p_id = request.args.get('id')
+    path = request.args.get('path')
+    action = request.args.get('action', 'download')
+    with PRINTERS_LOCK:
+        printer = next((p for p in PRINTERS if str(p.config['id']) == str(p_id)), None)
+    
+    if printer:
+        filename = path.split('/')[-1]
+        mimetype = 'application/octet-stream'
+        if filename.lower().endswith('.mp4'):
+            mimetype = 'video/mp4'
+        elif filename.lower().endswith('.avi'):
+            mimetype = 'video/x-msvideo'
+        
+        def generate_ftp_stream():
+            import ssl
+            from printer_drivers import ImplicitFTP_TLS
+            import queue
+            import threading
+            
+            q = queue.Queue(maxsize=15)
+            worker_thread = threading.current_thread()
+            
+            def worker():
+                try:
+                    context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+                    context.check_hostname = False
+                    context.verify_mode = ssl.CERT_NONE
+                    
+                    ftp = ImplicitFTP_TLS(context=context)
+                    ftp.connect(printer.ip, 990, timeout=10)
+                    ftp.login("bblp", printer.access_code)
+                    ftp.prot_p()
+                    
+                    def callback(chunk):
+                        if getattr(worker_thread, "abort_ftp", False):
+                            raise Exception("Client disconnected")
+                        q.put(chunk)
+                        
+                    ftp.retrbinary(f"RETR {path}", callback, 16384)
+                    ftp.quit()
+                except Exception as e:
+                    pass
+                finally:
+                    q.put(None)
+
+            t = threading.Thread(target=worker)
+            t.daemon = True
+            t.start()
+            
+            try:
+                while True:
+                    chunk = q.get(timeout=30)
+                    if chunk is None:
+                        break
+                    yield chunk
+            except GeneratorExit:
+                # O cliente fechou a conexão ou parou o vídeo
+                worker_thread.abort_ftp = True
+        
+        headers = {}
+        if action == 'download':
+            headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+        else:
+            headers['Content-Disposition'] = 'inline'
+            
+        from flask import Response, stream_with_context
+        return Response(stream_with_context(generate_ftp_stream()), mimetype=mimetype, headers=headers)
+        
+    return "Printer not found", 404
 
 @app.route('/api/add_printer', methods=['POST'])
 def add_printer():
@@ -504,13 +620,15 @@ def update_printer():
             break
     save_config(config)
     global PRINTERS
-    # Parar e remover a instância antiga para forçar a criação de uma nova
-    for pr in PRINTERS:
-        if str(pr.config['id']) == str(p_id):
-            try: pr.stop()
-            except: pass
-            
-    PRINTERS[:] = [pr for pr in PRINTERS if str(pr.config['id']) != str(p_id)]
+    with PRINTERS_LOCK:
+        printers_to_stop = [pr for pr in PRINTERS if str(pr.config['id']) == str(p_id)]
+    
+    for pr in printers_to_stop:
+        try: pr.stop()
+        except: pass
+        
+    with PRINTERS_LOCK:
+        PRINTERS[:] = [pr for pr in PRINTERS if str(pr.config['id']) != str(p_id)]
     update_printers_once()
     return jsonify({"success": True})
 
@@ -541,6 +659,18 @@ def toggle_printer():
             break
     return jsonify({"success": True})
 
+@app.route('/api/machine_action', methods=['POST'])
+def machine_action():
+    data = request.json
+    p_id = data.get('id')
+    action = data.get('action')
+    with PRINTERS_LOCK:
+        printer = next((p for p in PRINTERS if str(p.config['id']) == str(p_id)), None)
+    if printer and action:
+        printer.send_command(action)
+        return jsonify({"success": True})
+    return jsonify({"success": False, "error": "Printer not found or empty action"}), 404
+
 @app.route('/api/gcode', methods=['POST'])
 def send_gcode():
     data = request.json
@@ -557,16 +687,25 @@ def delete_printer():
     data = request.json
     p_id = data.get('id')
     config = load_config()
-    config = [p for p in config if p['id'] != p_id]
-    save_config(config)
+    new_config = []
+    for p in config:
+        if str(p['id']) != str(p_id):
+            new_config.append(p)
+    save_config(new_config)
     
     global PRINTERS
-    for pr in PRINTERS:
-        if str(pr.config['id']) == str(p_id):
-            try: pr.stop()
-            except: pass
-    PRINTERS[:] = [pr for pr in PRINTERS if str(pr.config['id']) != str(p_id)]
+    with PRINTERS_LOCK:
+        printers_to_stop = [pr for pr in PRINTERS if str(pr.config['id']) == str(p_id)]
+        
+    for pr in printers_to_stop:
+        try: pr.stop()
+        except: pass
+        
+    with PRINTERS_LOCK:
+        PRINTERS[:] = [pr for pr in PRINTERS if str(pr.config['id']) != str(p_id)]
     
+    if p_id in STATUS_CACHE:
+        del STATUS_CACHE[p_id]
     update_printers_once()
     return jsonify({"success": True})
 
@@ -629,6 +768,11 @@ def aditivaflow_sync_loop():
     log_info("[Cloud] Iniciando loop de sincronização AditivaFlow...")
     base_url = "https://iwsqfjngeicyrcdowdbi.supabase.co/functions/v1/device-api"
     
+    session = requests.Session()
+    adapter = requests.adapters.HTTPAdapter(pool_connections=20, pool_maxsize=20)
+    session.mount('https://', adapter)
+    session.mount('http://', adapter)
+    
     while KEEP_RUNNING:
         token = load_token()
         if not token:
@@ -645,7 +789,10 @@ def aditivaflow_sync_loop():
         
         # Sincronizar cada impressora que tenha platform_token (sync_code)
         # Nota: O usuário chamou o campo de 'platform_token' mas a API espera 'sync_code'
-        for p in PRINTERS:
+        with PRINTERS_LOCK:
+            printers_snap = list(PRINTERS)
+            
+        for p in printers_snap:
             if not KEEP_RUNNING: break
             
             sync_code = p.config.get('platform_token')
@@ -715,7 +862,7 @@ def aditivaflow_sync_loop():
                         }
                         
                         # POST separado para histórico (print-complete)
-                        requests.post(f"{base_url}/hub/print-complete", headers=headers, json=history_payload, timeout=10)
+                        session.post(f"{base_url}/hub/print-complete", headers=headers, json=history_payload, timeout=5)
                         log_cloud(f"Histórico de {p.name} sincronizado com sucesso.")
                         prev_data['started_at'] = None # Reset
                     except Exception as e:
@@ -797,7 +944,7 @@ def aditivaflow_sync_loop():
                     elif p.type == 'moonraker' and str(cover).startswith('http'):
                         if not hasattr(p, '_last_thumb_url') or p._last_thumb_url != cover:
                             try:
-                                t_resp = requests.get(cover, timeout=5)
+                                t_resp = session.get(cover, timeout=3)
                                 if t_resp.status_code == 200:
                                     p._last_thumb_url = cover
                                     p._last_thumb_b64 = base64.b64encode(t_resp.content).decode('utf-8')
@@ -816,17 +963,17 @@ def aditivaflow_sync_loop():
                 
                 # Tentar PATCH (preferencial) ou POST (fallback)
                 try:
-                    sync_resp = requests.patch(f"{base_url}/hub/sync", headers=headers, json=payload, timeout=12)
+                    sync_resp = session.patch(f"{base_url}/hub/sync", headers=headers, json=payload, timeout=5)
                     if sync_resp.status_code in [404, 405]:
                         # Se PATCH não existir, tenta POST
-                        sync_resp = requests.post(f"{base_url}/hub/sync", headers=headers, json=payload, timeout=12)
+                        sync_resp = session.post(f"{base_url}/hub/sync", headers=headers, json=payload, timeout=5)
                 except:
-                    sync_resp = requests.post(f"{base_url}/hub/sync", headers=headers, json=payload, timeout=12)
+                    sync_resp = session.post(f"{base_url}/hub/sync", headers=headers, json=payload, timeout=5)
 
                 if sync_resp.status_code == 200:
                     # Polling de comandos pendentes
                     if machine_id:
-                        cmd_resp = requests.get(f"{base_url}/hub/commands?machine_id={machine_id}&status=pending", headers=headers, timeout=5)
+                        cmd_resp = session.get(f"{base_url}/hub/commands?machine_id={machine_id}&status=pending", headers=headers, timeout=4)
                         if cmd_resp.status_code == 200:
                             commands = cmd_resp.json().get('data', [])
                             for cmd_obj in commands:
@@ -860,9 +1007,9 @@ def aditivaflow_sync_loop():
                                     "confirmation_message": msg or "Comando executado com sucesso"
                                 }
                                 try:
-                                    requests.patch(f"{base_url}/hub/command-confirm/{cmd_id}", headers=headers, json=conf_payload, timeout=5)
+                                    session.patch(f"{base_url}/hub/command-confirm/{cmd_id}", headers=headers, json=conf_payload, timeout=4)
                                 except:
-                                    requests.post(f"{base_url}/hub/command-confirm/{cmd_id}", headers=headers, json=conf_payload, timeout=5)
+                                    session.post(f"{base_url}/hub/command-confirm/{cmd_id}", headers=headers, json=conf_payload, timeout=4)
                 else:
                     log_warn(f"Erro Cloud ({p.name}): Status {sync_resp.status_code} - {sync_resp.text[:120]}")
                 
@@ -877,7 +1024,9 @@ def save_usage_periodically():
         config = load_config()
         if not config: continue
         changed = False
-        for pr in PRINTERS:
+        with PRINTERS_LOCK:
+            printers_snap = list(PRINTERS)
+        for pr in printers_snap:
             current_usage = round(pr.status.get('total_usage', 0), 4)
             for p_cfg in config:
                 if p_cfg['id'] == pr.config['id']:
@@ -898,8 +1047,26 @@ def start_background_tasks():
     threading.Thread(target=aditivaflow_sync_loop, daemon=True, name="CloudSync").start()
 
 if __name__ == '__main__':
-    # Flask reloader will run this twice. We only want to start threads in the child process.
-    if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
-        start_background_tasks()
+    import socket
+    import sys
     
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=True, use_debugger=False)
+    # Prevenção Absoluta Anti-Zumbi (Single Instance)
+    try:
+        instance_lock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        instance_lock.bind(('127.0.0.1', 54321))
+    except socket.error:
+        log_error("\n!!! ALERTA DE SEGURANÇA !!!")
+        log_error("Uma instância do AditivaFlow Hub JÁ ESTÁ RODANDO em segundo plano!")
+        log_error("Fechar imediatamente. Múltiplas instâncias geram conflitos no servidor.")
+        sys.exit(1)
+
+    log_info(f"Hub Server Iniciado!")
+    start_background_tasks()
+    
+    try:
+        from waitress import serve
+        log_info("[System] Usando servidor de produção Waitress em 0.0.0.0:5000 ...")
+        serve(app, host='0.0.0.0', port=5000, threads=24)
+    except ImportError:
+        log_warn("[System] Waitress não instalado. Rodando em Flask Development Server.")
+        app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)

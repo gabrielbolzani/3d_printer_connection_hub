@@ -17,7 +17,21 @@ import sys
 import os
 import subprocess
 from datetime import datetime, timedelta
+import atexit
 from logger_config import log_info, log_error, log_debug, log_warn
+
+FFMPEG_PROCESSES = []
+
+def _cleanup_ffmpegs():
+    global FFMPEG_PROCESSES
+    for proc in FFMPEG_PROCESSES:
+        try:
+            if proc and proc.poll() is None:
+                proc.kill()
+        except: pass
+    FFMPEG_PROCESSES.clear()
+
+atexit.register(_cleanup_ffmpegs)
 
 def get_ffmpeg_path():
     import shutil
@@ -837,6 +851,7 @@ class BambuX1CCameraThread(threading.Thread):
                     stderr=subprocess.PIPE,
                     **spawn_kwargs
                 )
+                FFMPEG_PROCESSES.append(self.ffmpeg_proc)
                 
                 # Aguarda até no máximo 15s para baixar o frame e sair
                 try:
@@ -852,6 +867,10 @@ class BambuX1CCameraThread(threading.Thread):
                     if self.ffmpeg_proc and self.ffmpeg_proc.poll() is None:
                         self.ffmpeg_proc.kill()
                     log_debug(f"[{self.ip}] Timeout capturando frame X1C")
+                finally:
+                    if self.ffmpeg_proc in FFMPEG_PROCESSES:
+                        try: FFMPEG_PROCESSES.remove(self.ffmpeg_proc)
+                        except: pass
                         
             except Exception as e:
                 log_debug(f"X1C ffmpeg error: {e}")
@@ -1451,6 +1470,114 @@ class BambuPrinter(BasePrinter):
             
             # Aguardar antes de tentar novamente
             time.sleep(5)
+
+    def list_bambu_files(self, category='files'):
+        """
+        Lista arquivos do cartão SD via FTP.
+        category: 'files' (mapeia para fatiamentos) ou 'timelapse' (mapeia para vídeos)
+        """
+        # Pastas conhecidas dependendo da versão do firmware e modelo (A1/P1/X1)
+        if category == 'files':
+            paths_to_check = ["/model", "/", "/cache", "/data/Metadata"]
+        else:
+            paths_to_check = ["/timelapse", "/timelapse/video", "/record", "/recording"]
+            
+        log_info(f"[{self.ip}] FTP: Listando arquivos da categoria {category}")
+        
+        all_files = []
+        try:
+            context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            
+            ftp = ImplicitFTP_TLS(context=context)
+            ftp.connect(self.ip, 990, timeout=10)
+            ftp.login("bblp", self.access_code)
+            ftp.prot_p()
+            
+            for path in paths_to_check:
+                try:
+                    ftp.cwd(path)
+                    items = []
+                    ftp.retrlines("LIST", items.append)
+                    
+                    for item in items:
+                        parts = item.split()
+                        if len(parts) >= 9:
+                            is_dir = item.startswith('d')
+                            name = " ".join(parts[8:])
+                            # Ignorar arquivos de sistema ou ocultos
+                            if name in ['.', '..'] or name.startswith('._'): continue
+                            
+                            # Filtro básico
+                            lower_name = name.lower()
+                            if category == 'files' and not (lower_name.endswith('.3mf') or lower_name.endswith('.gcode') or is_dir):
+                                continue
+                            if category == 'timelapse' and not (lower_name.endswith('.mp4') or lower_name.endswith('.avi') or is_dir):
+                                continue
+                                
+                            size = int(parts[4])
+                            p_path = f"{path.rstrip('/')}/{name}"
+                            
+                            # Evitar duplicatas que podem ocorrer por symlinks ou caminhos relativos
+                            if not any(f['path'] == p_path for f in all_files):
+                                all_files.append({
+                                    'name': name,
+                                    'is_dir': is_dir,
+                                    'size': size,
+                                    'path': p_path
+                                })
+                except Exception as e:
+                    pass # Pasta não existe ou sem permissão, normal
+            
+            ftp.quit()
+        except Exception as e:
+            log_error(f"[{self.ip}] Erro ao listar arquivos via FTP: {e}")
+            
+        # Ordenar por nome
+        all_files.sort(key=lambda x: x['name'], reverse=True if category == 'timelapse' else False)
+        return all_files
+
+    def download_bambu_file(self, remote_path):
+        """Baixa um arquivo do FTP e retorna os bytes."""
+        try:
+            context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            
+            ftp = ImplicitFTP_TLS(context=context)
+            ftp.connect(self.ip, 990, timeout=15)
+            ftp.login("bblp", self.access_code)
+            ftp.prot_p()
+            
+            bio = io.BytesIO()
+            ftp.retrbinary(f"RETR {remote_path}", bio.write)
+            ftp.quit()
+            bio.seek(0)
+            return bio.read()
+        except Exception as e:
+            log_error(f"[{self.ip}] Erro ao baixar arquivo FTP ({remote_path}): {e}")
+            return None
+
+    def delete_bambu_file(self, remote_path):
+        """Remove um arquivo do cartão SD via FTP."""
+        try:
+            context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            
+            ftp = ImplicitFTP_TLS(context=context)
+            ftp.connect(self.ip, 990, timeout=10)
+            ftp.login("bblp", self.access_code)
+            ftp.prot_p()
+            
+            log_info(f"[{self.ip}] FTP: Removendo {remote_path}")
+            ftp.delete(remote_path)
+            ftp.quit()
+            return True
+        except Exception as e:
+            log_error(f"[{self.ip}] Erro ao remover arquivo FTP ({remote_path}): {e}")
+            return False
 
     def update(self):
         # Incrementar horas de uso se estiver imprimindo

@@ -947,6 +947,122 @@ CARD
         box-shadow: 0 0 0 3px rgba(63, 185, 80, 0.1);
     }
 
+    /* ─── BAMBU FILE EXPLORER ─── */
+    .bambu-file-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        max-height: 400px;
+        overflow-y: auto;
+        padding-right: 5px;
+    }
+
+    .bambu-file-item {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        transition: all 0.2s;
+    }
+
+    .bambu-file-item:hover {
+        background: rgba(255, 255, 255, 0.06);
+        border-color: var(--accent);
+    }
+
+    .bfi-icon {
+        font-size: 1.2rem;
+        color: var(--accent);
+        width: 30px;
+        text-align: center;
+    }
+
+    .bfi-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .bfi-name {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--text-1);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .bfi-meta {
+        font-size: 0.7rem;
+        color: var(--text-3);
+        margin-top: 2px;
+    }
+
+    .bfi-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .bfi-btn {
+        width: 32px;
+        height: 32px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: rgba(0, 0, 0, 0.2);
+        color: var(--text-2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .bfi-btn:hover {
+        background: var(--accent);
+        color: white;
+        border-color: var(--accent);
+    }
+
+    .bfi-btn.del:hover {
+        background: var(--red);
+        border-color: var(--red);
+    }
+    
+    .bfi-btn.play:hover {
+        background: var(--green);
+        border-color: var(--green);
+    }
+
+    .bambu-tabs {
+        display: flex;
+        gap: 1rem;
+        margin-bottom: 1rem;
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 0.5rem;
+    }
+
+    .btab {
+        padding: 0.5rem 1rem;
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--text-2);
+        cursor: pointer;
+        border-radius: 6px;
+        transition: all 0.2s;
+    }
+
+    .btab.active {
+        background: var(--accent-dim);
+        color: var(--accent);
+    }
+
+    .btab:hover:not(.active) {
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--text-1);
+    }
+
     /* Form row */
     .form-row {
         display: grid;
@@ -1019,6 +1135,53 @@ CARD
 {% block content %}
 
 <div id="printerGrid" class="printer-grid"></div>
+
+<!-- BAMBU FILES MODAL -->
+<div id="bambuFilesModal" class="modal">
+    <div class="modal-content" style="max-width:600px;">
+        <div class="modal-header">
+            <h2 id="bambuFilesTitle">SD Card: <span id="bambuFilesPrinterName">Printer</span></h2>
+            <button class="close-btn" onclick="closeBambuFilesModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="bambuFilesPrinterId">
+            <div class="bambu-tabs">
+                <div class="btab active" id="btab-files" onclick="switchBambuFiles('files')">
+                    <i class="fas fa-folder-open"></i> Arquivos 3MF
+                </div>
+                <div class="btab" id="btab-timelapse" onclick="switchBambuFiles('timelapse')">
+                    <i class="fas fa-video"></i> Timelapses
+                </div>
+            </div>
+            
+            <div id="bambuFileList" class="bambu-file-list">
+                <!-- Loader placeholder -->
+                <div style="text-align:center; padding:2rem; color:var(--text-3);">
+                    <i class="fas fa-circle-notch fa-spin" style="font-size:2rem; margin-bottom:1rem; color:var(--accent);"></i>
+                    <p>Conectando à impressora...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- VIDEO PLAYER MODAL -->
+<div id="videoPlayerModal" class="modal" style="z-index: 2000;">
+    <div class="modal-content" style="max-width:800px; padding: 1rem;">
+        <div class="modal-header" style="border-bottom:none; margin-bottom:0.5rem; padding-bottom:0;">
+            <h2 id="videoPlayerTitle" style="font-size: 1rem; margin:0; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; max-width:90%;">Video</h2>
+            <button class="close-btn" onclick="closeVideoPlayer()">&times;</button>
+        </div>
+        <div style="width:100%; aspect-ratio:16/9; background:#000; border-radius:8px; overflow:hidden; position:relative;">
+            <!-- Loading indicator for video -->
+            <div id="videoLoader" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); color:rgba(255,255,255,0.5); pointer-events:none;">
+                <i class="fas fa-spinner fa-spin fa-2x"></i>
+                <div style="margin-top:8px; font-size:0.8rem;">Carregando vídeo remoto...</div>
+            </div>
+            <video id="bambuVideoPlayer" controls autoplay style="width:100%; height:100%; display:none;" oncanplay="document.getElementById('videoLoader').style.display='none'; this.style.display='block';"></video>
+        </div>
+    </div>
+</div>
 
 <div id="addModal" class="modal">
     <div class="modal-content" style="max-width:500px;"><span class="close-btn" onclick="closeAddModal()"
@@ -1644,6 +1807,10 @@ CARD BUILDER
                         <button class="icon-btn" title="Raw Data" onclick="openRaw('${p.id}')">
                             <i class="fas fa-code"></i>
                         </button>
+                        ${p.type === 'bambu' ? `
+                        <button class="icon-btn" title="SD Card Files" onclick="openBambuFilesModal('${p.id}', '${p.name.replace(/'/g, "\\'")}')">
+                            <i class="fas fa-folder"></i>
+                        </button>` : ''}
                     </div>
                     <button class="icon-btn ib-settings" title="Settings" onclick="openEditModal(${pJson})">
                         <i class="fas fa-cog"></i> Settings
@@ -2018,12 +2185,145 @@ CONTROLS
     }
 
     /* ══════════════════════════════════════
+       BAMBU FILES
+    ══════════════════════════════════════ */
+    let currentBambuCategory = 'files';
+
+    function openBambuFilesModal(id, name) {
+        document.getElementById('bambuFilesPrinterId').value = id;
+        document.getElementById('bambuFilesPrinterName').innerText = name;
+        document.getElementById('bambuFilesModal').style.display = 'flex';
+        currentBambuCategory = 'files';
+        switchBambuFiles('files');
+    }
+
+    function closeBambuFilesModal() {
+        document.getElementById('bambuFilesModal').style.display = 'none';
+    }
+
+    async function switchBambuFiles(cat) {
+        currentBambuCategory = cat;
+        document.querySelectorAll('.btab').forEach(b => b.classList.remove('active'));
+        document.getElementById(`btab-${cat}`).classList.add('active');
+        
+        const list = document.getElementById('bambuFileList');
+        list.innerHTML = `<div style="text-align:center; padding:2rem; color:var(--text-3);">
+            <i class="fas fa-circle-notch fa-spin" style="font-size:2rem; margin-bottom:1rem; color:var(--accent);"></i>
+            <p>Buscando lista do SD Card...</p>
+        </div>`;
+
+        const id = document.getElementById('bambuFilesPrinterId').value;
+        try {
+            const res = await fetch(`/api/bambu/files/${id}?category=${cat}`);
+            const data = await res.json();
+            
+            if (data.success && data.files.length > 0) {
+                list.innerHTML = data.files.map(f => {
+                    const isModel = f.name.toLowerCase().endsWith('.3mf') || f.name.toLowerCase().endsWith('.gcode');
+                    const isVideo = f.name.toLowerCase().endsWith('.mp4') || f.name.toLowerCase().endsWith('.avi');
+                    let icon = 'fa-file';
+                    if (isModel) icon = 'fa-cube';
+                    if (isVideo) icon = 'fa-video';
+                    if (f.is_dir) icon = 'fa-folder';
+
+                    const size = (f.size / (1024 * 1024)).toFixed(2) + ' MB';
+
+                    return `
+                        <div class="bambu-file-item">
+                            <div class="bfi-icon"><i class="fas ${icon}"></i></div>
+                            <div class="bfi-info">
+                                <div class="bfi-name">${f.name}</div>
+                                <div class="bfi-meta">${f.is_dir ? 'Pasta' : size}</div>
+                            </div>
+                            <div class="bfi-actions">
+                                ${!f.is_dir ? `
+                                    <button class="bfi-btn" title="Download" onclick="window.open('/api/bambu/download_file?id=${id}&path=${encodeURIComponent(f.path)}&action=download', '_blank')">
+                                        <i class="fas fa-download"></i>
+                                    </button>
+                                    ${isVideo ? `
+                                    <button class="bfi-btn play" title="Assistir Vídeo" onclick="playBambuVideo('${id}', '${f.path.replace(/'/g, "\\'")}', '${f.name.replace(/'/g, "\\'")}')">
+                                        <i class="fas fa-play"></i>
+                                    </button>
+                                    ` : ''}
+                                    <button class="bfi-btn del" title="Excluir" onclick="deleteBambuFile('${id}', '${f.path.replace(/'/g, "\\'")}')">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } else {
+                list.innerHTML = `<div style="text-align:center; padding:3rem; color:var(--text-3);">
+                    <i class="fas fa-ghost" style="font-size:2rem; margin-bottom:1rem;"></i>
+                    <p>Nenhum arquivo encontrado em /${cat === 'files' ? 'model' : 'timelapse'}</p>
+                </div>`;
+            }
+        } catch (e) {
+            list.innerHTML = `<div style="text-align:center; padding:2rem; color:var(--red);">
+                <i class="fas fa-exclamation-triangle" style="font-size:2rem; margin-bottom:1rem;"></i>
+                <p>Erro ao conectar com FTP da impressora.</p>
+                <small>${e.message}</small>
+            </div>`;
+        }
+    }
+
+    async function deleteBambuFile(id, path) {
+        if (!confirm(`Tem certeza que deseja excluir permanentemente: \n${path}?`)) return;
+
+        try {
+            const res = await fetch('/api/bambu/delete_file', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, path })
+            });
+            const data = await res.json();
+            if (data.success) {
+                switchBambuFiles(currentBambuCategory);
+            } else {
+                alert('Falha ao excluir arquivo.');
+            }
+        } catch (e) {
+            alert('Erro: ' + e.message);
+        }
+    }
+
+    function playBambuVideo(id, path, name) {
+        const modal = document.getElementById('videoPlayerModal');
+        const player = document.getElementById('bambuVideoPlayer');
+        const loader = document.getElementById('videoLoader');
+        
+        document.getElementById('videoPlayerTitle').innerText = name;
+        
+        // Setup player
+        loader.style.display = 'block';
+        player.style.display = 'none';
+        
+        // We use action=view to tell the server NOT to set as_attachment=true
+        // This makes the browser try to play it inline.
+        const vUrl = `/api/bambu/download_file?id=${id}&path=${encodeURIComponent(path)}&action=view`;
+        player.src = vUrl;
+        
+        modal.style.display = 'flex';
+    }
+
+    function closeVideoPlayer() {
+        document.getElementById('videoPlayerModal').style.display = 'none';
+        const player = document.getElementById('bambuVideoPlayer');
+        player.pause();
+        player.removeAttribute('src'); // Stop downloading
+        player.load();
+    }
+
+    /* ══════════════════════════════════════
        CLOSE ON BACKDROP
     ══════════════════════════════════════ */
     window.addEventListener('click', (e) => {
         if (e.target === addModal) closeAddModal();
         if (e.target === editModal) closeEditModal();
         if (e.target === document.getElementById('gcodeModal')) closeGcodeModal();
+        if (e.target === document.getElementById('bambuFilesModal')) closeBambuFilesModal();
+        if (e.target === document.getElementById('videoPlayerModal')) closeVideoPlayer();
     });
 
     /* ══════════════════════════════════════

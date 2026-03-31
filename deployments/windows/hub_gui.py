@@ -10,6 +10,10 @@ from tkinter import messagebox, filedialog
 from PIL import Image
 import pystray
 from pystray import MenuItem as item
+try:
+    from waitress import serve
+except ImportError:
+    serve = None
 
 # ---------------------------------------------------------------------------
 # Descoberta do diretório de trabalho (config.json, auth_token.json)
@@ -159,7 +163,7 @@ class HubLauncher:
                   bg="#3f3f3f", fg="#ffcccc", width=22, relief="flat",
                   command=self.quit_app, cursor="hand2").pack(pady=10)
 
-        tk.Label(self.root, text="v1.0.4 - aditivaflow.com.br",
+        tk.Label(self.root, text="v1.4.0 - aditivaflow.com.br",
                  font=("Segoe UI", 8), fg="#333333", bg="#1a1a1a").pack(side="bottom", pady=8)
 
     # ------------------------------------------------------------------
@@ -218,10 +222,14 @@ class HubLauncher:
 
     def run_flask(self):
         try:
-            self.server = make_server('0.0.0.0', 5000, server_app.app)
-            self.server.serve_forever()
+            if serve:
+                print("Iniciando Waitress server via GUI...")
+                serve(server_app.app, host='0.0.0.0', port=5000, threads=24)
+            else:
+                self.server = make_server('0.0.0.0', 5000, server_app.app)
+                self.server.serve_forever()
         except Exception as e:
-            print(f"Flask erro: {e}")
+            print(f"Servidor erro: {e}")
 
     def start_server(self):
         if self.is_server_running():
@@ -362,6 +370,14 @@ class HubLauncher:
 
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    # Prevenção Absoluta Anti-Zumbi (Single Instance lock for GUI)
+    try:
+        gui_instance_lock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        gui_instance_lock.bind(('127.0.0.1', 54321))
+    except socket.error:
+        messagebox.showerror("Atenção", "Uma instância do AditivaFlow Hub já está rodando em segundo plano!")
+        sys.exit(1)
+
     root = tk.Tk()
     app_gui = HubLauncher(root)
 
