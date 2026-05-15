@@ -1238,6 +1238,10 @@ CARD
                 </div>
             </div>
             <hr class="form-divider">
+            <div class="checkbox-group">
+                <input type="checkbox" id="pIgnoreUnknownHms" checked>
+                <label for="pIgnoreUnknownHms"><i class="fas fa-filter" style="opacity:0.5;"></i>Ignorar códigos HMS desconhecidos</label>
+            </div>
             <div class="form-group"><label><i class="fas fa-key" style="margin-right:4px;opacity:0.5;"></i>Platform
                     Token <span style="color:var(--text-3);font-weight:400;">(optional)</span></label><input
                     type="text" id="pPlatformToken" placeholder="Enter token..."></div>
@@ -1309,18 +1313,20 @@ CARD
                         <input type="number" id="eUsage" step="0.1" value="0">
                     </div>
                 </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="eIgnoreUnknownHms">
+                    <label for="eIgnoreUnknownHms"><i class="fas fa-filter" style="opacity:0.5;"></i>Ignorar códigos HMS desconhecidos</label>
+                </div>
+                <div class="form-group"><label><i class="fas fa-key" style="margin-right:4px;opacity:0.5;"></i>Platform
+                        Token</label><input type="text" id="ePlatformToken" placeholder="Enter token..."></div>
+                <div class="actions" style="justify-content:space-between;"><button type="button" class="btn btn-danger"
+                        onclick="deletePrinterFromModal()"><i class="fas fa-trash"></i>Delete </button>
+                    <div style="display:flex;gap:0.5rem;"><button type="button" class="btn btn-secondary"
+                            onclick="closeEditModal()">Cancel</button><button type="submit" class="btn btn-primary"><i
+                                class="fas fa-save"></i>Save</button></div>
+                </div>
+            </form>
         </div>
-        <hr class="form-divider">
-        <div class="form-group"><label><i class="fas fa-key" style="margin-right:4px;opacity:0.5;"></i>Platform
-                Token</label><input type="text" id="ePlatformToken" placeholder="Enter token..."></div>
-        <div class="actions" style="justify-content:space-between;"><button type="button" class="btn btn-danger"
-                onclick="deletePrinterFromModal()"><i class="fas fa-trash"></i>Delete </button>
-            <div style="display:flex;gap:0.5rem;"><button type="button" class="btn btn-secondary"
-                    onclick="closeEditModal()">Cancel</button><button type="submit" class="btn btn-primary"><i
-                        class="fas fa-save"></i>Save</button></div>
-        </div>
-        </form>
-    </div>
     <!-- Raw Tab -->
     <div id="tabRaw" class="tab-pane">
         <pre id="rawViewer" class="raw-viewer">Loading...</pre>
@@ -1470,6 +1476,14 @@ CARD BUILDER
         const bed = parseFloat(p.temp_bed || 0).toFixed(1);
         const targetNozzle = p.target_nozzle || 0;
         const targetBed = p.target_bed || 0;
+        
+        // Multi-nozzle support (H2D) - Só exibe se houver dados (não for null)
+        const nozzleL = (p.temp_nozzle_left !== null && p.temp_nozzle_left !== undefined) ? parseFloat(p.temp_nozzle_left).toFixed(1) : null;
+        const nozzleR = (p.temp_nozzle_right !== null && p.temp_nozzle_right !== undefined) ? parseFloat(p.temp_nozzle_right).toFixed(1) : null;
+        const targetNozzleL = p.target_nozzle_left || 0;
+        const targetNozzleR = p.target_nozzle_right || 0;
+        const activeNozzle = p.active_nozzle; // 1=left, 0=right
+        
         const layer = p.layer || 0;
         const totalL = p.total_layers || 0;
         const eta = fmtEta(p.remaining_time);
@@ -1480,16 +1494,15 @@ CARD BUILDER
 
         /* Camera / Cover Image */
         let finalCamUrl = camUrl;
-        if (p.type === 'bambu' && !camUrl && enabled) {
-            finalCamUrl = `/api/camera/${p.id}`;
+        
+        // Priorizar proxy do Hub para maior estabilidade (extrator MJPEG, RTSP, Snapshot caching)
+        if (p.camera_refresh || p.type === 'bambu' || p.type === 'elegoo') {
+             finalCamUrl = `/api/camera/${p.id}`;
+        } else if (p.type === 'moonraker' && !p.custom_camera && p.auto_camera_url && enabled) {
+             finalCamUrl = p.auto_camera_url;
         }
 
-        // Moonraker auto-discovery
-        if (p.type === 'moonraker' && !p.custom_camera && p.auto_camera_url && enabled) {
-            finalCamUrl = p.auto_camera_url;
-        }
-
-        if (finalCamUrl && (p.camera_refresh || p.type === 'bambu')) {
+        if (finalCamUrl && (p.camera_refresh || p.type === 'bambu' || p.type === 'elegoo' || finalCamUrl.startsWith('/api/camera'))) {
             finalCamUrl += (finalCamUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
         }
 
@@ -1573,10 +1586,15 @@ CARD BUILDER
                             <div class="stat-lbl">Wi-Fi Signal</div>
                             <div class="stat-val" style="font-size:0.7rem; color:${wifiSignalColor(p.wifi_signal)}">${p.wifi_signal} dBm</div>
                         </div>` : ''}
-                        ${p.chamber_temp !== undefined ? `
+                        ${(p.chamber_temp !== undefined && p.chamber_temp !== null) ? `
                         <div class="stat-box" style="padding: 5px;">
                             <div class="stat-lbl">Chamber Temp</div>
                             <div class="stat-val" style="font-size:0.7rem; color:${p.chamber_temp > 45 ? '#ff7b72' : '#58a6ff'}">${p.chamber_temp}°C</div>
+                        </div>` : ''}
+                        ${(p.door_open !== undefined && p.door_open !== null) ? `
+                        <div class="stat-box" style="padding: 5px;">
+                            <div class="stat-lbl">Porta</div>
+                            <div class="stat-val" style="font-size:0.7rem; color:${p.door_open ? '#ff7b72' : '#3fb950'}">${p.door_open ? 'Aberta' : 'Fechada'}</div>
                         </div>` : ''}
                         ${(p.type === 'bambu' && p.active_tray_name) ? `
                         <div class="stat-box" style="padding: 5px;" title="UUID: ${p.active_tray_uuid || 'N/A'}">
@@ -1647,12 +1665,26 @@ CARD BUILDER
                 <div class="stat-val">${finishTime}</div>
             </div>
         ` : `
-            <div class="stat-box">
-                <div class="stat-lbl"><i class="fas fa-thermometer-half"></i> Bico</div>
-                <div class="stat-val ${tempCls(nozzle)}">
-                    ${nozzle}°C${targetNozzle > 0 ? `<span class="target-val">/${targetNozzle}</span>` : ''}
+            ${(nozzleL !== null && nozzleR !== null) ? `
+                <div class="stat-box" style="grid-column: span 2;">
+                    <div class="stat-lbl"><i class="fas fa-thermometer-half"></i> Dual Bico</div>
+                    <div style="display:flex; gap:1.2rem; margin-top:4px;">
+                        <div class="stat-val ${tempCls(nozzleL)}" style="font-size:0.85rem; border-left:3px solid ${activeNozzle === 1 ? 'var(--accent)' : 'transparent'}; padding-left:6px;" title="Bico Esquerdo (Ativo se marcado)">
+                            L: ${nozzleL}°C${targetNozzleL > 0 ? `<span class="target-val">/${targetNozzleL}</span>` : ''}
+                        </div>
+                        <div class="stat-val ${tempCls(nozzleR)}" style="font-size:0.85rem; border-left:3px solid ${activeNozzle === 0 ? 'var(--accent)' : 'transparent'}; padding-left:6px;" title="Bico Direito (Ativo se marcado)">
+                            R: ${nozzleR}°C${targetNozzleR > 0 ? `<span class="target-val">/${targetNozzleR}</span>` : ''}
+                        </div>
+                    </div>
                 </div>
-            </div>
+            ` : `
+                <div class="stat-box">
+                    <div class="stat-lbl"><i class="fas fa-thermometer-half"></i> Bico</div>
+                    <div class="stat-val ${tempCls(nozzle)}">
+                        ${nozzle}°C${targetNozzle > 0 ? `<span class="target-val">/${targetNozzle}</span>` : ''}
+                    </div>
+                </div>
+            `}
             <div class="stat-box">
                 <div class="stat-lbl"><i class="fas fa-bed"></i> Mesa</div>
                 <div class="stat-val ${tempCls(bed)}">
@@ -1667,7 +1699,7 @@ CARD BUILDER
             <div class="stat-box">
                 <div class="stat-lbl"><i class="fas fa-box"></i> Câmara</div>
                 <div class="stat-val ${p.chamber_temp > 45 ? 'c-hot' : 'c-cool'}">
-                    ${p.chamber_temp}°C
+                    ${p.chamber_temp}°C${p.target_chamber_temp > 0 ? `<span class="target-val">/${p.target_chamber_temp}</span>` : ''}
                 </div>
             </div>` : ''}
 
@@ -1747,7 +1779,7 @@ CARD BUILDER
                 ${p.ams && p.ams.length > 0 ? (() => {
                 const units = {};
                 p.ams.forEach(t => {
-                    if (!units[t.ams]) units[t.ams] = { humidity: t.humidity, temp: t.temp || 0, trays: [] };
+                    if (!units[t.ams]) units[t.ams] = { humidity: t.humidity, temp: t.temp, trays: [] };
                     units[t.ams].trays.push(t);
                 });
 
@@ -1755,12 +1787,19 @@ CARD BUILDER
                         <div class="ams-unit-container" style="margin-bottom:15px;">
                             <div class="ams-label">
                                 ${parseInt(unitId) === 254 ? 'Carretel Externo' : `AMS ${parseInt(unitId) + 1}`} 
-                                <span style="margin-left:auto; font-size:0.65rem; background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px; color:var(--text-2); display:flex; align-items:center; gap:8px;">
-                                    ${parseInt(unitId) === 254 ? '' : `
-                                        <span><i class="fas fa-tint"></i> ${units[unitId].humidity}%</span>
-                                        <span style="opacity:0.3">|</span>
-                                        <span><i class="fas fa-thermometer-half"></i> ${units[unitId].temp}°C</span>
-                                    `}
+                                <span style="margin-left:auto; font-size:0.65rem; color:var(--text-2); display:flex; align-items:center; gap:8px;">
+                                    ${(() => {
+                        const showHum = units[unitId].humidity && units[unitId].humidity !== 'N/A';
+                        const showTemp = units[unitId].temp !== undefined && units[unitId].temp !== null;
+                        if (!showHum && !showTemp) return '';
+                        return `
+                                            <span style="background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px;">
+                                                ${showHum ? `<span><i class="fas fa-tint"></i> ${units[unitId].humidity}%</span>` : ''}
+                                                ${showHum && showTemp ? `<span style="opacity:0.3">|</span>` : ''}
+                                                ${showTemp ? `<span><i class="fas fa-thermometer-half"></i> ${units[unitId].temp}°C</span>` : ''}
+                                            </span>
+                                        `;
+                    })()}
                                 </span>
                             </div>
                             <div class="ams-grid">
@@ -2054,7 +2093,8 @@ CONTROLS
             camera_url: document.getElementById('pCamera').value,
             refresh_interval: parseInt(document.getElementById('pRefresh').value),
             platform_token: document.getElementById('pPlatformToken').value,
-            total_usage: parseFloat(document.getElementById('pUsage').value || 0)
+            total_usage: parseFloat(document.getElementById('pUsage').value || 0),
+            ignore_unknown_hms: document.getElementById('pIgnoreUnknownHms').checked
         };
 
         const res = await fetch('/api/add_printer', {
@@ -2087,6 +2127,7 @@ CONTROLS
         document.getElementById('eRefresh').value = printer.refresh_interval || 5000;
         document.getElementById('ePlatformToken').value = printer.platform_token || '';
         document.getElementById('eUsage').value = parseFloat(printer.total_usage || 0).toFixed(4);
+        document.getElementById('eIgnoreUnknownHms').checked = printer.ignore_unknown_hms !== false;
         document.getElementById('eType').value = printer.type || 'moonraker';
         toggleEditFields();
         switchTab(goRaw ? 'tabRaw' : 'tabEdit', goRaw ? 'tabRawBtn' : 'tabEditBtn');
@@ -2146,7 +2187,8 @@ CONTROLS
             camera_url: document.getElementById('eCameraUrl').value,
             refresh_interval: parseInt(document.getElementById('eRefresh').value),
             platform_token: document.getElementById('ePlatformToken').value,
-            total_usage: parseFloat(document.getElementById('eUsage').value || 0)
+            total_usage: parseFloat(document.getElementById('eUsage').value || 0),
+            ignore_unknown_hms: document.getElementById('eIgnoreUnknownHms').checked
         };
 
         const res = await fetch('/api/update_printer', {

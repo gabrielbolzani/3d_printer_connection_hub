@@ -201,6 +201,19 @@ def update_p(p):
             STATUS_CACHE[p.config['id']] = s
             return
         p.update()
+        
+        # Otimização: Captura snapshot em segundo plano se não houver thread dedicada (ex: Bambu)
+        if hasattr(p, 'get_snapshot') and not hasattr(p, 'cam_thread'):
+            now = time.time()
+            # Respeita o intervalo definido pelo usuário em 'refresh_interval' (em ms)
+            interval_sec = p.config.get('refresh_interval', 5000) / 1000.0
+            # Garanto que pelo menos a cada X segundos ele tente atualizar o frame no buffer
+            if now - getattr(p, '_last_snapshot_time', 0) >= interval_sec or not p.last_frame:
+                p._last_snapshot_time = now
+                frame = p.get_snapshot()
+                if frame:
+                    p.last_frame = frame
+
         STATUS_CACHE[p.config['id']] = p.get_status()
     except Exception as e:
         log_error(f"Update failed for {p.config.get('name')}: {e}")
@@ -448,12 +461,12 @@ def get_camera_frame(printer_id):
     with PRINTERS_LOCK:
         printer = next((p for p in PRINTERS if str(p.config['id']) == str(printer_id)), None)
     if printer:
-        # Check for cached frame (Bambu)
+        # Priorizar frame do buffer (Bambu, Klipper em background, Elegoo em background) muito mais estável
         if hasattr(printer, 'last_frame') and printer.last_frame:
             from flask import Response
             return Response(printer.last_frame, mimetype='image/jpeg')
         
-        # Check for on-demand snapshot (Moonraker)
+        # Fallback apenas se o buffer estiver vazio mas houver método de snapshot
         if hasattr(printer, 'get_snapshot'):
             frame = printer.get_snapshot()
             if frame:
@@ -587,7 +600,9 @@ def add_printer():
         'camera_refresh': data.get('camera_refresh', False),
         'refresh_interval': int(data.get('refresh_interval', 5000)),
         'platform_token': data.get('platform_token', ''),
-        'enabled': True
+        'enabled': True,
+        'total_usage': data.get('total_usage', 0.0),
+        'ignore_unknown_hms': data.get('ignore_unknown_hms', True)
     }
     if new_printer['type'] == 'elegoo':
         new_printer['port'] = 3000
@@ -613,6 +628,7 @@ def update_printer():
             p['access_code'] = data.get('access_code', p.get('access_code', ''))
             p['platform_token'] = data.get('platform_token', p.get('platform_token', ''))
             p['total_usage'] = float(data.get('total_usage', p.get('total_usage', 0.0)))
+            p['ignore_unknown_hms'] = data.get('ignore_unknown_hms', True)
             if p['type'] == 'elegoo':
                 p['port'] = 3000
             else:
@@ -921,15 +937,12 @@ def aditivaflow_sync_loop():
                 # IDs da Nuvem apenas em variavel local para comandos
                 machine_id = CLOUD_METADATA['machines'].get(sync_code)
 
-                # 1. Câmera Handling (Base64 only)
+                # 1. Câmera Handling (Base64) - Obtida do buffer em segundo plano (Otimizado)
                 frame = None
                 img_info = ""
                 if hasattr(p, 'last_frame') and p.last_frame:
                     frame = p.last_frame
-                    img_info = " [Stream]"
-                elif hasattr(p, 'get_snapshot'):
-                    frame = p.get_snapshot()
-                    img_info = " [Snapshot]"
+                    img_info = " [Snap]" if hasattr(p, 'get_snapshot') else " [Stream]"
                 
                 if frame:
                     payload["camera_frame_base64"] = base64.b64encode(frame).decode('utf-8')

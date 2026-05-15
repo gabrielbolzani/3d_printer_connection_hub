@@ -170,7 +170,9 @@ def get_hms_desc(code):
             if clean_code in HMS_DATA[cat]:
                 entry = HMS_DATA[cat][clean_code]
                 if isinstance(entry, dict) and entry:
-                    desc_key = list(entry.keys())[0]
+                    keys = list(entry.keys())
+                    if not keys: continue
+                    desc_key = keys[0]
                     dados = entry[desc_key]
                     if isinstance(dados, dict):
                         return {"desc": desc_key, "criticidade": dados.get("criticidade", 0), "status": dados.get("status", "")}
@@ -182,7 +184,9 @@ def get_hms_desc(code):
                 if short in HMS_DATA[cat]:
                     entry = HMS_DATA[cat][short]
                     if isinstance(entry, dict) and entry:
-                        desc_key = list(entry.keys())[0]
+                        keys = list(entry.keys())
+                        if not keys: continue
+                        desc_key = keys[0]
                         dados = entry[desc_key]
                         if isinstance(dados, dict):
                             return {"desc": desc_key, "criticidade": dados.get("criticidade", 0), "status": dados.get("status", "")}
@@ -221,6 +225,8 @@ class BasePrinter:
         }
         self.last_update = 0
         self.last_usage_time = time.time()
+        self.last_frame = None
+        self._last_snapshot_time = 0
 
     def connect(self):
         pass
@@ -243,8 +249,16 @@ class BasePrinter:
             'target_nozzle': 0,
             'target_bed': 0,
             'chamber_temp': 0,
+            'target_chamber_temp': 0,
+            'temp_nozzle_left': None,
+            'temp_nozzle_right': None,
+            'target_nozzle_left': 0,
+            'target_nozzle_right': 0,
+            'active_nozzle': None,
+            'door_open': None,
             'fan_part': 0,
             'fan_aux': 0,
+            'fan_secondary_aux': 0,
             'fan_chamber': 0,
             'ams': [],
             'hms': [],
@@ -254,6 +268,42 @@ class BasePrinter:
 
     def send_command(self, command, **kwargs):
         pass
+
+    def get_snapshot(self):
+        """Tenta buscar um snapshot de uma câmera genérica via camera_url."""
+        url = self.config.get('camera_url', '')
+        if not url: return None
+        
+        try:
+            # Se for um link de stream mjpg-streamer, tenta converter para snapshot
+            snap_url = url
+            if 'action=stream' in url:
+                snap_url = url.replace('action=stream', 'action=snapshot')
+            
+            # Usar modo stream=True para capturar apenas um frame se for um vídeo/stream infinito
+            with requests.get(snap_url, timeout=3, stream=True) as resp:
+                if resp.status_code == 200:
+                    # Se for um JPEG direto (possui tamanho fixo pequeno), lê tudo
+                    content_length = int(resp.headers.get('Content-Length', 0))
+                    if 0 < content_length < 1500000: # < 1.5MB
+                        return resp.content
+
+                    # Para MJPEG Streams ou URLs sem Content-Length (ex: ESP32-CAM)
+                    # Procuramos o SOI (FF D8) e o EOI (FF D9) para extrair o primeiro frame completo
+                    content = b""
+                    MAX_SCAN = 1024 * 1024 # Limite de 1MB para não estourar memória
+                    for chunk in resp.iter_content(chunk_size=8192):
+                        content += chunk
+                        if b'\xff\xd8' in content:
+                            # Limpa lixo antes do início da imagem
+                            content = content[content.find(b'\xff\xd8'):]
+                            if b'\xff\xd9' in content:
+                                # Retorna exatamente o frame do SOI ao EOI
+                                return content[:content.find(b'\xff\xd9') + 2]
+                        if len(content) > MAX_SCAN: break
+        except:
+            pass
+        return None
 
     def stop(self):
         """Para todos os serviços e threads da impressora."""
@@ -273,6 +323,7 @@ class BasePrinter:
         s['refresh_interval'] = self.config.get('refresh_interval', 5000)
         s['platform_token'] = self.config.get('platform_token', '')
         s['enabled'] = self.config.get('enabled', True)
+        s['ignore_unknown_hms'] = self.config.get('ignore_unknown_hms', True)
         s['last_update'] = self.last_update
         return s
 
@@ -926,9 +977,11 @@ class BambuPrinter(BasePrinter):
             'target_nozzle': 0,
             'target_bed': 0,
             'chamber_temp': 0,
+            'target_chamber_temp': 0,    # câmara aquecida (H2D/H2C/X1E)
             'fan_part': 0,
             'fan_aux': 0,
             'fan_chamber': 0,
+            'fan_secondary_aux': 0,      # ventilador auxiliar secundário (P2S/X2D)
             'ams': [],
             'hms': [],
             'speed_level': 2, # Normal
@@ -939,7 +992,20 @@ class BambuPrinter(BasePrinter):
             'active_tray_uuid': '',
             'firmware_update': {'current': '', 'latest': '', 'available': False},
             'print_error': {'code': 0, 'message': ''},
-            'started_at': None
+            'started_at': None,
+            # --- Dual Nozzle (H2D, H2C, X2D) ---
+            'device_model': '',           # detectado via get_version
+            'temp_nozzle_right': None,       # bico id=0 (direito)
+            'target_nozzle_right': 0,
+            'temp_nozzle_left': None,        # bico id=1 (esquerdo)
+            'target_nozzle_left': 0,
+            'active_nozzle': 0,           # 0=direito, 1=esquerdo
+            'nozzle_diameter_right': None,
+            'nozzle_diameter_left': None,
+            'nozzle_type_right': None,
+            'nozzle_type_left': None,
+            # --- Door Sensor ---
+            'door_open': False,
         })
         # total_usage já está no BasePrinter.status
         self.start_time = None
@@ -977,7 +1043,9 @@ class BambuPrinter(BasePrinter):
             if not self.cam_thread:
                 # O X1C usa RTSP na porta 322 (prefixo de série começa com 00M, 00W, 00E)
                 # P1 / A1 usam porta 6000
-                is_x1c = self.serial and self.serial.startswith(("00M", "00W", "00E"))
+                # Modelos que usam câmera RTSP na porta 322 (via FFmpeg):
+                # X1C/X1E = 00M, 00W, 00E | H2D = 094
+                is_x1c = self.serial and self.serial.startswith(("00M", "00W", "00E", "094"))
 
                 if is_x1c:
                     if get_ffmpeg_path():
@@ -1039,11 +1107,10 @@ class BambuPrinter(BasePrinter):
         with self.lock:
             # Pegar dados de print (pode estar no topo ou dentro de data)
             p = data.get('print', {})
-            
-            # Se 'print' não existe, data pode ser o próprio dicionário de status em alguns casos
-            # Mas geralmente a Bambu manda {"print": {...}} ou {"ams": {...}}
+            is_a1_series = self.serial and self.serial.startswith(("030", "039"))
             
             if p:
+
                 curr_state = p.get('gcode_state', '').lower() or self.status.get('state', '').lower()
                 if 'gcode_state' in p:
                     new_state = p['gcode_state'].lower()
@@ -1062,32 +1129,107 @@ class BambuPrinter(BasePrinter):
                     self.status['remaining_time'] = p['mc_remaining_time']
                     dt = datetime.now() + timedelta(minutes=p['mc_remaining_time'])
                     self.status['finish_time'] = dt.strftime("%H:%M")
-                if 'nozzle_temper' in p:
-                    self.status['temp_nozzle'] = p['nozzle_temper']
-                if 'nozzle_target_temper' in p:
-                    self.status['target_nozzle'] = p['nozzle_target_temper']
-                if 'bed_temper' in p:
-                    self.status['temp_bed'] = p['bed_temper']
-                if 'bed_target_temper' in p:
-                    self.status['target_bed'] = p['bed_target_temper']
+                # --- Temperaturas (Novo formato H2D: device.* ; Legado: campos flat) ---
+                device = p.get('device', {})
+
+                # Bed temp — novo formato (low word = atual, high word = alvo)
+                bed_raw = device.get('bed', {}).get('info', {}).get('temp')
+                if bed_raw is not None:
+                    self.status['temp_bed'] = bed_raw & 0xFFFF
+                    self.status['target_bed'] = (bed_raw >> 16) & 0xFFFF
+                else:
+                    if 'bed_temper' in p:
+                        self.status['temp_bed'] = p['bed_temper']
+                    if 'bed_target_temper' in p:
+                        self.status['target_bed'] = p['bed_target_temper']
+
+                # Chamber temp + target — novo formato (ctc)
+                # A1/A1 Mini não possuem câmara fechada nem sensor de porta
+                if not is_a1_series:
+                    ctc_raw = device.get('ctc', {}).get('info', {}).get('temp')
+                    if ctc_raw is None:
+                        ctc_raw = data.get('device', {}).get('ctc', {}).get('info', {}).get('temp')
+                    
+                    if ctc_raw is not None:
+                        self.status['chamber_temp'] = ctc_raw & 0xFFFF
+                        self.status['target_chamber_temp'] = (ctc_raw >> 16) & 0xFFFF
+                    elif 'chamber_temper' in p:
+                        self.status['chamber_temp'] = round(p['chamber_temper'])
+                    elif 'chamber_temper' in data:
+                        self.status['chamber_temp'] = round(data['chamber_temper'])
+                else:
+                    self.status['chamber_temp'] = None
+                    self.status['door_open'] = None
+
+                # Dual Nozzle temperatures (H2D: device.extruder.info[{id,temp}])
+                extruder_block = device.get('extruder', {})
+                extruder_info = extruder_block.get('info')
+                if extruder_info:
+                    extruder_state = extruder_block.get('state', 0)
+                    # bits 4-7 = extrusor ativo (0=direito, 1=esquerdo)
+                    active_nozzle = (extruder_state >> 4) & 0xF
+                    self.status['active_nozzle'] = active_nozzle
+                    for entry in extruder_info:
+                        nid = entry.get('id')
+                        temp_raw = entry.get('temp')
+                        if temp_raw is not None:
+                            t_cur = temp_raw & 0xFFFF
+                            t_tgt = (temp_raw >> 16) & 0xFFFF
+                            if nid == 0:
+                                self.status['temp_nozzle_right'] = t_cur
+                                self.status['target_nozzle_right'] = t_tgt
+                            elif nid == 1:
+                                self.status['temp_nozzle_left'] = t_cur
+                                self.status['target_nozzle_left'] = t_tgt
+                    # Compat: temp_nozzle = bico ativo
+                    if active_nozzle == 1:
+                        self.status['temp_nozzle'] = self.status['temp_nozzle_left']
+                        self.status['target_nozzle'] = self.status['target_nozzle_left']
+                    else:
+                        self.status['temp_nozzle'] = self.status['temp_nozzle_right']
+                        self.status['target_nozzle'] = self.status['target_nozzle_right']
+                else:
+                    # Legado: campos flat (X1C, A1, P1S...)
+                    if 'nozzle_temper' in p:
+                        self.status['temp_nozzle'] = p['nozzle_temper']
+                    if 'nozzle_target_temper' in p:
+                        self.status['target_nozzle'] = p['nozzle_target_temper']
+
+                # Nozzle diameter e tipo — novo formato (device.nozzle.info[])
+                nozzle_info = device.get('nozzle', {}).get('info')
+                if isinstance(nozzle_info, list):
+                    for entry in nozzle_info:
+                        nid = entry.get('id')
+                        if nid == 0:
+                            self.status['nozzle_diameter_right'] = entry.get('diameter')
+                            self.status['nozzle_type_right'] = entry.get('type')
+                        elif nid == 1:
+                            self.status['nozzle_diameter_left'] = entry.get('diameter')
+                            self.status['nozzle_type_left'] = entry.get('type')
+                elif 'nozzle_diameter' in p:
+                    self.status['nozzle_diameter_right'] = p['nozzle_diameter']
+                    self.status['nozzle_type_right'] = p.get('nozzle_type')
+
                 if 'layer_num' in p:
                     self.status['layer'] = p['layer_num']
                 if 'total_layer_num' in p:
                     self.status['total_layers'] = p['total_layer_num']
-                if 'chamber_temper' in p:
-                    self.status['chamber_temp'] = round(p['chamber_temper'])
-                elif 'chamber_temper' in data:
-                    self.status['chamber_temp'] = round(data['chamber_temper'])
-                
-                # New firmware puts the chamber temperature in a different place (inside 'device' which is inside 'print').
-                ctc_temp = p.get("device", {}).get("ctc", {}).get("info", {}).get("temp", None)
-                if ctc_temp is not None:
-                    self.status['chamber_temp'] = ctc_temp & 0xFFFF
-                else:
-                    # Fallback check at root level for 'device'
-                    ctc_temp_root = data.get("device", {}).get("ctc", {}).get("info", {}).get("temp", None)
-                    if ctc_temp_root is not None:
-                        self.status['chamber_temp'] = ctc_temp_root & 0xFFFF
+
+                # Door sensor — X1/X1C via home_flag, H2D/H2C/P2S via 'stat' hex
+                home_flag = p.get('home_flag')
+                if home_flag is not None:
+                    self.status['door_open'] = bool(home_flag & 0x00800000)
+                stat_hex = p.get('stat')
+                if stat_hex:
+                    try:
+                        self.status['door_open'] = bool(int(stat_hex, 16) & 0x00800000)
+                    except: pass
+
+                # Ventilador auxiliar secundário (P2S/X2D — device.airduct.parts id=160)
+                airduct_parts = device.get('airduct', {}).get('parts', [])
+                for part in airduct_parts:
+                    if part.get('id') == 160:
+                        self.status['fan_secondary_aux'] = round((int(part.get('value', 0)) / 15.0) * 100)
 
                 # Gerenciamento de Tarefa (Nome do Arquivo e Thumbnail)
                 new_file = p.get('subtask_name', '')
@@ -1097,8 +1239,10 @@ class BambuPrinter(BasePrinter):
                 # Ou se o campo subtask_name veio vazio explicitamente
                 is_idle = curr_state in ['idle', 'ready', 'success', 'finish', 'off']
                 
-                if (is_idle and not new_file) or (new_file == "" and self.current_filename):
+                # Resetar metadados APENAS se a impressora estiver em repouso e não houver um novo arquivo vindo no MQTT
+                if is_idle and not new_file:
                     if self.current_filename:
+                        log_info(f"[{self.ip}] Impressão finalizada/cancelada. Limpando metadados.")
                         self.current_filename = ""
                         self.status['filename'] = ""
                         self.status['task_name'] = ""
@@ -1113,10 +1257,14 @@ class BambuPrinter(BasePrinter):
                         self.print_start_time = None
                 
                 elif new_file:
-                    # Forçar atualização se o arquivo mudar OU se começar a imprimir (mesmo que o arquivo seja o mesmo)
-                    force_update = (new_file != self.current_filename) or (curr_state in ['printing', 'running'] and prev_state not in ['printing', 'running'])
+                    # Detectar reinício de impressão do mesmo arquivo (progresso voltou a zero ou mudou significativamente)
+                    progress_reset = (p.get('mc_percent', 0) < self.status.get('progress', 0) - 5) and (curr_state in ['printing', 'running'])
+                    
+                    # Forçar atualização se o arquivo mudar OU se houver um reset de progresso OU se começar a imprimir vindo de outro estado
+                    force_update = (new_file != self.current_filename) or progress_reset or (curr_state in ['printing', 'running'] and prev_state not in ['printing', 'running'])
                     
                     if force_update:
+                        log_info(f"[{self.ip}] Nova tarefa detectada: {new_file} (ForceUpdate={force_update}, ProgressReset={progress_reset})")
                         self.current_filename = new_file
                         self.status['filename'] = new_file
                         self.status['task_name'] = new_file.replace('.gcode', '').replace('.3mf', '')
@@ -1179,6 +1327,12 @@ class BambuPrinter(BasePrinter):
                             hms_code_display = f'{int(attr / 0x10000):04X}_{attr & 0xFFFF:04X}_{int(code / 0x10000):04X}_{code & 0xFFFF:04X}'
                             
                             hms_info = get_hms_desc(hms_code_lookup)
+                            
+                            # Filtro de erros desconhecidos/não documentados
+                            ignore = self.config.get('ignore_unknown_hms', True)
+                            if ignore and (not hms_info or not hms_info.get("desc")):
+                                continue # Ignora se não existir ou se a descrição for vazia
+
                             if hms_info:
                                 desc = hms_info.get("desc", "")
                                 crit = hms_info.get("criticidade", 0)
@@ -1215,13 +1369,18 @@ class BambuPrinter(BasePrinter):
                             desc = ""
                             crit = 0
                             status_name = ""
-                            
-                        self.status['print_error'] = {
-                            'code': err_code,
-                            'message': f"Erro {hex_err} - {desc}" if desc else f"Erro {hex_err}",
-                            'criticidade': crit,
-                            'status': status_name
-                        }
+                        
+                        # Filtro de erros desconhecidos para print_error também
+                        ignore = self.config.get('ignore_unknown_hms', True)
+                        if ignore and (not hms_info or not hms_info.get("desc")):
+                            self.status['print_error'] = None
+                        else:
+                            self.status['print_error'] = {
+                                'code': err_code,
+                                'message': f"Erro {hex_err} - {desc}" if desc else f"Erro {hex_err}",
+                                'criticidade': crit,
+                                'status': status_name
+                            }
                     else:
                         self.status['print_error'] = None
             # AMS e VT Tray (Carretel Externo)
@@ -1280,7 +1439,7 @@ class BambuPrinter(BasePrinter):
                     elif f_name == "Unknown":
                         f_name = f_type or "Desconhecido"
 
-                    trays.append({
+                    tray_data = {
                         'ams': unit_id,
                         'id': tray_id,
                         'type': f_type,
@@ -1289,12 +1448,19 @@ class BambuPrinter(BasePrinter):
                         'color': f_color,
                         'remain': f_remain,
                         'uuid': f_uuid,
-                        'humidity': h_pct or h_index, # Fallback index se raw não existir
-                        'humidity_pct': h_pct,
-                        'temp': ams_temp,
                         'active': is_active,
                         'empty': is_empty
-                    })
+                    }
+                    
+                    if is_a1_series:
+                        # AMS Lite não tem sensores de umidade/temp - não transmitir nada
+                        tray_data['humidity'] = 'N/A'
+                    else:
+                        tray_data['humidity'] = h_pct or h_index
+                        tray_data['humidity_pct'] = h_pct
+                        tray_data['temp'] = ams_temp
+                        
+                    trays.append(tray_data)
 
             # 2. Processar VT Tray (Carretel Externo/Lateral)
             if vt_data:
@@ -1362,8 +1528,19 @@ class BambuPrinter(BasePrinter):
             if info:
                 msg = info.get('command')
                 if msg == 'get_version':
-                    # Extrair versões
+                    # Detectar modelo da impressora via product_name
+                    MODEL_MAP = {
+                        'Bambu Lab H2D': 'H2D', 'Bambu Lab H2D Pro': 'H2DPRO',
+                        'Bambu Lab H2C': 'H2C', 'Bambu Lab H2S': 'H2S',
+                        'Bambu Lab P2S': 'P2S', 'Bambu Lab X2D': 'X2D',
+                        'Bambu Lab X1C': 'X1C', 'Bambu Lab X1E': 'X1E',
+                        'Bambu Lab P1S': 'P1S', 'Bambu Lab P1P': 'P1P',
+                        'Bambu Lab A1': 'A1', 'Bambu Lab A1 mini': 'A1MINI',
+                    }
                     for dev in info.get('module', []):
+                        pname = dev.get('product_name', '')
+                        if pname and pname in MODEL_MAP:
+                            self.status['device_model'] = MODEL_MAP[pname]
                         if dev.get('name') == 'ota':
                             self.status['firmware_update']['current'] = dev.get('sw_ver', '')
                     
@@ -1416,18 +1593,28 @@ class BambuPrinter(BasePrinter):
                 
                 target_path = None
                 for f_name in search_files:
-                    for folder in ["/cache", ""]:
+                    for folder in ["/data/Metadata", "/cache", ""]:
                         p = f"{folder}/{f_name}" if folder else f"/{f_name}"
                         try:
                             # log_debug(f"[{self.ip}] Testando FTP: {p}")
                             ftp.size(p)
                             target_path = p
+                            log_info(f"[{self.ip}] FTP: Encontrado arquivo de metadados: {p}")
                             break
                         except: continue
                     if target_path: break
+                
+                if not target_path:
+                    log_info(f"[{self.ip}] FTP: Nenhum arquivo de metadados encontrado para '{filename}'. Tentando listar diretórios...")
+                    try:
+                        for folder in ["/", "/cache", "/data/Metadata"]:
+                            files = []
+                            ftp.retrlines(f"LIST {folder}", files.append)
+                            log_info(f"[{self.ip}] Conteúdo de {folder}: {files[:5]}") # Mostrar apenas os 5 primeiros para não lotar o log
+                    except: pass
                     
                 if target_path:
-                    log_debug(f"[{self.ip}] FTP: Baixando {target_path}...")
+                    log_info(f"[{self.ip}] FTP: Baixando {target_path}...")
                     bio = io.BytesIO()
                     ftp.retrbinary(f"RETR {target_path}", bio.write)
                     ftp.quit()
@@ -1450,18 +1637,23 @@ class BambuPrinter(BasePrinter):
                                         elif meta.get('key') == 'index':
                                             plate_idx = meta.get('value')
                                     
-                                    # Tentar imagem do plate
-                                    try:
-                                        with z.open(f'Metadata/plate_{plate_idx}.png') as img_f:
-                                            self.status['cover_image'] = base64.b64encode(img_f.read()).decode('utf-8')
-                                    except:
-                                        # Fallback para plate_1 se o index falhar
+                                    # Tentar imagem do plate (várias nomenclaturas comuns)
+                                    possible_images = [
+                                        f'Metadata/plate_{plate_idx}.png',
+                                        f'Metadata/plate_1.png',
+                                        f'Metadata/plate_0.png',
+                                        f'Metadata/thumbnail.png',
+                                        f'Metadata/top.png'
+                                    ]
+                                    for img_path in possible_images:
                                         try:
-                                            with z.open(f'Metadata/plate_1.png') as img_f:
-                                                 self.status['cover_image'] = base64.b64encode(img_f.read()).decode('utf-8')
-                                        except: pass
+                                            with z.open(img_path) as img_f:
+                                                self.status['cover_image'] = base64.b64encode(img_f.read()).decode('utf-8')
+                                                log_info(f"[{self.ip}] Thumbnail encontrada e carregada: {img_path}")
+                                                break
+                                        except: continue
                         except Exception as e:
-                            log_debug(f"[{self.ip}] Erro ao processar Zip: {e}")
+                            log_info(f"[{self.ip}] Erro ao processar Zip: {e}")
                     return # Sucesso
                 else:
                     ftp.quit()

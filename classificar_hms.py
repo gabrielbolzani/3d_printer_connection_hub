@@ -38,28 +38,33 @@ def classify_message(msg):
 
     return 2, "Baixo"
 
-def process_dict(d):
-    for key, value in d.items():
-        if isinstance(value, dict):
-            process_dict(value)
-        elif isinstance(value, list):
-            crit, status = classify_message(key)
-            d[key] = {
-                "criticidade": crit,
-                "status": status
-            }
-
 def main():
     try:
-        with open("hms_pt-br.json", "r", encoding="utf-8") as f:
+        # Tentar carregar o novo arquivo se existir, senão o antigo
+        input_file = "hms_pt-br_new.json"
+        output_file = "hms_Classificado_pt-br.json"
+        
+        with open(input_file, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        process_dict(data)
+        new_data = {}
+        for category in data:
+            new_data[category] = {}
+            for code, messages in data[category].items():
+                new_data[category][code] = {}
+                for msg, devices in messages.items():
+                    crit, status = classify_message(msg)
+                    new_data[category][code][msg] = {
+                        "criticidade": crit,
+                        "status": status
+                    }
+                    if devices:
+                        new_data[category][code][msg]["devices"] = devices
 
-        with open("hms_Classificado_pt-br.json", "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(new_data, f, ensure_ascii=False, indent=2)
 
-        print("Arquivo hms_Classificado_pt-br.json gerado com sucesso!")
+        print(f"Arquivo {output_file} gerado com sucesso a partir de {input_file}!")
     except Exception as e:
         print(f"Erro: {e}")
 
