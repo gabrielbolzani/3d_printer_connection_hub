@@ -169,7 +169,7 @@ class HubLauncher:
             with open(v_file, 'r') as f:
                 current_v = f.read().strip()
         except:
-            current_v = "v1.5.1"
+            current_v = "v1.6.0"
 
         tk.Label(self.root, text=f"{current_v} - aditivaflow.com.br",
                  font=("Segoe UI", 8), fg="#333333", bg="#1a1a1a").pack(side="bottom", pady=8)

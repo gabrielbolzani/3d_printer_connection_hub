@@ -30,7 +30,7 @@ def inject_version():
         with open(v_path, "r") as f:
             v = f.read().strip()
     except:
-        v = "v1.5.1"
+        v = "v1.6.0"
     return dict(app_version=v)
 
 CONFIG_FILE = 'config.json'
