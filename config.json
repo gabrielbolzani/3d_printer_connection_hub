@@ -13,7 +13,7 @@
         "refresh_interval": 5000,
         "platform_token": "64PDCQ",
         "enabled": true,
-        "total_usage": 18.732,
+        "total_usage": 24.6545,
         "ignore_unknown_hms": true
     },
     {
@@ -29,7 +29,7 @@
         "refresh_interval": 3000,
         "enabled": true,
         "platform_token": "5G3APH",
-        "total_usage": 1477.2324,
+        "total_usage": 1480.3028,
         "custom_camera": false,
         "ignore_unknown_hms": true
     },

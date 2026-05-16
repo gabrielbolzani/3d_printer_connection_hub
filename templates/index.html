@@ -1029,7 +1029,7 @@ CARD
         background: var(--red);
         border-color: var(--red);
     }
-    
+
     .bfi-btn.play:hover {
         background: var(--green);
         border-color: var(--green);
@@ -1153,11 +1153,12 @@ CARD
                     <i class="fas fa-video"></i> Timelapses
                 </div>
             </div>
-            
+
             <div id="bambuFileList" class="bambu-file-list">
                 <!-- Loader placeholder -->
                 <div style="text-align:center; padding:2rem; color:var(--text-3);">
-                    <i class="fas fa-circle-notch fa-spin" style="font-size:2rem; margin-bottom:1rem; color:var(--accent);"></i>
+                    <i class="fas fa-circle-notch fa-spin"
+                        style="font-size:2rem; margin-bottom:1rem; color:var(--accent);"></i>
                     <p>Conectando à impressora...</p>
                 </div>
             </div>
@@ -1169,16 +1170,21 @@ CARD
 <div id="videoPlayerModal" class="modal" style="z-index: 2000;">
     <div class="modal-content" style="max-width:800px; padding: 1rem;">
         <div class="modal-header" style="border-bottom:none; margin-bottom:0.5rem; padding-bottom:0;">
-            <h2 id="videoPlayerTitle" style="font-size: 1rem; margin:0; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; max-width:90%;">Video</h2>
+            <h2 id="videoPlayerTitle"
+                style="font-size: 1rem; margin:0; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; max-width:90%;">
+                Video</h2>
             <button class="close-btn" onclick="closeVideoPlayer()">&times;</button>
         </div>
-        <div style="width:100%; aspect-ratio:16/9; background:#000; border-radius:8px; overflow:hidden; position:relative;">
+        <div
+            style="width:100%; aspect-ratio:16/9; background:#000; border-radius:8px; overflow:hidden; position:relative;">
             <!-- Loading indicator for video -->
-            <div id="videoLoader" style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); color:rgba(255,255,255,0.5); pointer-events:none;">
+            <div id="videoLoader"
+                style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); color:rgba(255,255,255,0.5); pointer-events:none;">
                 <i class="fas fa-spinner fa-spin fa-2x"></i>
                 <div style="margin-top:8px; font-size:0.8rem;">Carregando vídeo remoto...</div>
             </div>
-            <video id="bambuVideoPlayer" controls autoplay style="width:100%; height:100%; display:none;" oncanplay="document.getElementById('videoLoader').style.display='none'; this.style.display='block';"></video>
+            <video id="bambuVideoPlayer" controls autoplay style="width:100%; height:100%; display:none;"
+                oncanplay="document.getElementById('videoLoader').style.display='none'; this.style.display='block';"></video>
         </div>
     </div>
 </div>
@@ -1240,11 +1246,12 @@ CARD
             <hr class="form-divider">
             <div class="checkbox-group">
                 <input type="checkbox" id="pIgnoreUnknownHms" checked>
-                <label for="pIgnoreUnknownHms"><i class="fas fa-filter" style="opacity:0.5;"></i>Ignorar códigos HMS desconhecidos</label>
+                <label for="pIgnoreUnknownHms"><i class="fas fa-filter" style="opacity:0.5;"></i>Ignorar códigos HMS
+                    desconhecidos</label>
             </div>
             <div class="form-group"><label><i class="fas fa-key" style="margin-right:4px;opacity:0.5;"></i>Platform
-                    Token <span style="color:var(--text-3);font-weight:400;">(optional)</span></label><input
-                    type="text" id="pPlatformToken" placeholder="Enter token..."></div>
+                    Token <span style="color:var(--text-3);font-weight:400;">(optional)</span></label><input type="text"
+                    id="pPlatformToken" placeholder="Enter token..."></div>
             <div class="actions" style="justify-content:flex-end;"><button type="button" class="btn btn-secondary"
                     onclick="closeAddModal()">Cancel</button><button type="submit" class="btn btn-primary"><i
                         class="fas fa-save"></i>Save Printer</button></div>
@@ -1315,7 +1322,8 @@ CARD
                 </div>
                 <div class="checkbox-group">
                     <input type="checkbox" id="eIgnoreUnknownHms">
-                    <label for="eIgnoreUnknownHms"><i class="fas fa-filter" style="opacity:0.5;"></i>Ignorar códigos HMS desconhecidos</label>
+                    <label for="eIgnoreUnknownHms"><i class="fas fa-filter" style="opacity:0.5;"></i>Ignorar códigos HMS
+                        desconhecidos</label>
                 </div>
                 <div class="form-group"><label><i class="fas fa-key" style="margin-right:4px;opacity:0.5;"></i>Platform
                         Token</label><input type="text" id="ePlatformToken" placeholder="Enter token..."></div>
@@ -1327,13 +1335,13 @@ CARD
                 </div>
             </form>
         </div>
-    <!-- Raw Tab -->
-    <div id="tabRaw" class="tab-pane">
-        <pre id="rawViewer" class="raw-viewer">Loading...</pre>
-        <div class="actions" style="justify-content:flex-end;"><button class="btn btn-secondary" onclick="loadRaw()"><i
-                    class="fas fa-sync-alt"></i>Refresh </button></div>
+        <!-- Raw Tab -->
+        <div id="tabRaw" class="tab-pane">
+            <pre id="rawViewer" class="raw-viewer">Loading...</pre>
+            <div class="actions" style="justify-content:flex-end;"><button class="btn btn-secondary"
+                    onclick="loadRaw()"><i class="fas fa-sync-alt"></i>Refresh </button></div>
+        </div>
     </div>
-</div>
 </div>
 
 <div id="gcodeModal" class="modal">
@@ -1476,14 +1484,14 @@ CARD BUILDER
         const bed = parseFloat(p.temp_bed || 0).toFixed(1);
         const targetNozzle = p.target_nozzle || 0;
         const targetBed = p.target_bed || 0;
-        
+
         // Multi-nozzle support (H2D) - Só exibe se houver dados (não for null)
         const nozzleL = (p.temp_nozzle_left !== null && p.temp_nozzle_left !== undefined) ? parseFloat(p.temp_nozzle_left).toFixed(1) : null;
         const nozzleR = (p.temp_nozzle_right !== null && p.temp_nozzle_right !== undefined) ? parseFloat(p.temp_nozzle_right).toFixed(1) : null;
         const targetNozzleL = p.target_nozzle_left || 0;
         const targetNozzleR = p.target_nozzle_right || 0;
         const activeNozzle = p.active_nozzle; // 1=left, 0=right
-        
+
         const layer = p.layer || 0;
         const totalL = p.total_layers || 0;
         const eta = fmtEta(p.remaining_time);
@@ -1494,12 +1502,12 @@ CARD BUILDER
 
         /* Camera / Cover Image */
         let finalCamUrl = camUrl;
-        
+
         // Priorizar proxy do Hub para maior estabilidade (extrator MJPEG, RTSP, Snapshot caching)
         if (p.camera_refresh || p.type === 'bambu' || p.type === 'elegoo') {
-             finalCamUrl = `/api/camera/${p.id}`;
+            finalCamUrl = `/api/camera/${p.id}`;
         } else if (p.type === 'moonraker' && !p.custom_camera && p.auto_camera_url && enabled) {
-             finalCamUrl = p.auto_camera_url;
+            finalCamUrl = p.auto_camera_url;
         }
 
         if (finalCamUrl && (p.camera_refresh || p.type === 'bambu' || p.type === 'elegoo' || finalCamUrl.startsWith('/api/camera'))) {
@@ -1786,7 +1794,7 @@ CARD BUILDER
                 return Object.keys(units).map(unitId => `
                         <div class="ams-unit-container" style="margin-bottom:15px;">
                             <div class="ams-label">
-                                ${parseInt(unitId) === 254 ? 'Carretel Externo' : `AMS ${parseInt(unitId) + 1}`} 
+                                ${ (units[unitId].trays.some(t => t.external) || parseInt(unitId) >= 254) ? 'Spool Externo' : `AMS ${parseInt(unitId) + 1}` } 
                                 <span style="margin-left:auto; font-size:0.65rem; color:var(--text-2); display:flex; align-items:center; gap:8px;">
                                     ${(() => {
                         const showHum = units[unitId].humidity && units[unitId].humidity !== 'N/A';
@@ -1804,25 +1812,25 @@ CARD BUILDER
                             </div>
                             <div class="ams-grid">
                                 ${units[unitId].trays.map(t => {
-                    if (t.empty) return `<div class="ams-tray tray-empty" title="Vazio"></div>`;
-                    let hexColor = t.color || 'FFFFFF';
-                    if (hexColor.startsWith('#')) hexColor = hexColor.substring(1);
-                    const cleanColor = hexColor.substring(0, 6);
-                    const isLight = parseInt(cleanColor, 16) > 0x888888;
-                    const txtCol = isLight ? '#000' : '#fff';
-                    const prog = t.remain >= 0 ? t.remain : 0;
-                    return `
+                        if (t.empty) return `<div class="ams-tray tray-empty" title="Vazio"></div>`;
+                        let hexColor = t.color || 'FFFFFF';
+                        if (hexColor.startsWith('#')) hexColor = hexColor.substring(1);
+                        const cleanColor = hexColor.substring(0, 6);
+                        const isLight = parseInt(cleanColor, 16) > 0x888888;
+                        const txtCol = isLight ? '#000' : '#fff';
+                        const prog = t.remain >= 0 ? t.remain : 0;
+                        return `
                                         <div class="ams-tray ${t.active ? 'tray-active' : ''}" 
                                              style="background:#${cleanColor};" 
                                              title="${t.brand || ''} ${t.type} (${prog}%)\nUUID: ${t.uuid || 'N/A'}\n${parseInt(unitId) === 254 ? 'Externo' : `AMS ${parseInt(unitId) + 1}, Slot ${t.id + 1}`}">
-                                            <span style="font-size:0.5rem;opacity:0.6;position:absolute;top:1px;left:3px;color:${txtCol}; z-index:3;">${parseInt(unitId) === 254 ? 'E' : t.id + 1}</span>
+                                            <span style="font-size:0.5rem;opacity:0.6;position:absolute;top:1px;left:3px;color:${txtCol}; z-index:3;">${(t.external || parseInt(unitId) >= 254) ? 'E' : t.id + 1}</span>
                                             <div class="ams-remain-bar" style="height:${100 - prog}%;"></div>
                                             <div style="position:relative; z-index:2; color:${txtCol}; display:flex; flex-direction:column; line-height:1.1;">
                                                 <span style="font-size:0.5rem;opacity:0.8;">${t.brand || '---'}</span>
                                                 <span style="font-weight:bold;font-size:0.7rem;">${t.type}</span>
                                             </div>
                                         </div>`;
-                }).join('')}
+                    }).join('')}
                             </div>
                         </div>
                     `).join('');
@@ -2247,7 +2255,7 @@ CONTROLS
         currentBambuCategory = cat;
         document.querySelectorAll('.btab').forEach(b => b.classList.remove('active'));
         document.getElementById(`btab-${cat}`).classList.add('active');
-        
+
         const list = document.getElementById('bambuFileList');
         list.innerHTML = `<div style="text-align:center; padding:2rem; color:var(--text-3);">
             <i class="fas fa-circle-notch fa-spin" style="font-size:2rem; margin-bottom:1rem; color:var(--accent);"></i>
@@ -2258,7 +2266,7 @@ CONTROLS
         try {
             const res = await fetch(`/api/bambu/files/${id}?category=${cat}`);
             const data = await res.json();
-            
+
             if (data.success && data.files.length > 0) {
                 list.innerHTML = data.files.map(f => {
                     const isModel = f.name.toLowerCase().endsWith('.3mf') || f.name.toLowerCase().endsWith('.gcode');
@@ -2334,18 +2342,18 @@ CONTROLS
         const modal = document.getElementById('videoPlayerModal');
         const player = document.getElementById('bambuVideoPlayer');
         const loader = document.getElementById('videoLoader');
-        
+
         document.getElementById('videoPlayerTitle').innerText = name;
-        
+
         // Setup player
         loader.style.display = 'block';
         player.style.display = 'none';
-        
+
         // We use action=view to tell the server NOT to set as_attachment=true
         // This makes the browser try to play it inline.
         const vUrl = `/api/bambu/download_file?id=${id}&path=${encodeURIComponent(path)}&action=view`;
         player.src = vUrl;
-        
+
         modal.style.display = 'flex';
     }
 

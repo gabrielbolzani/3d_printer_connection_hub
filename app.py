@@ -920,6 +920,24 @@ def aditivaflow_sync_loop():
                     "remaining_time": safe_int(status.get('remaining_time', 0) * 60)
                 }
 
+                # Only include dual nozzle fields if they actually exist for this printer (e.g., temp_nozzle_left is not None)
+                if status.get('temp_nozzle_left') is not None:
+                    payload.update({
+                        "temp_nozzle_left": status.get('temp_nozzle_left'),
+                        "temp_nozzle_right": status.get('temp_nozzle_right'),
+                        "target_nozzle_left": safe_round(status.get('target_nozzle_left', 0)),
+                        "target_nozzle_right": safe_round(status.get('target_nozzle_right', 0)),
+                        "active_nozzle": status.get('active_nozzle'),
+                        "nozzle_diameter_right": status.get('nozzle_diameter_right'),
+                        "nozzle_diameter_left": status.get('nozzle_diameter_left'),
+                        "nozzle_type_right": status.get('nozzle_type_right'),
+                        "nozzle_type_left": status.get('nozzle_type_left'),
+                        "nozzle_fila_id_right": status.get('nozzle_fila_id_right'),
+                        "nozzle_fila_id_left": status.get('nozzle_fila_id_left'),
+                        "nozzle_color_right": status.get('nozzle_color_right'),
+                        "nozzle_color_left": status.get('nozzle_color_left'),
+                    })
+
                 # Timestamps de controle
                 if mapped_state == "complete":
                     payload["completed_at"] = datetime.now().isoformat()

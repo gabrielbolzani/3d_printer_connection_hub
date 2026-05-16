@@ -1004,6 +1004,10 @@ class BambuPrinter(BasePrinter):
             'nozzle_diameter_left': None,
             'nozzle_type_right': None,
             'nozzle_type_left': None,
+            'nozzle_fila_id_right': None,
+            'nozzle_fila_id_left': None,
+            'nozzle_color_right': None,
+            'nozzle_color_left': None,
             # --- Door Sensor ---
             'door_open': False,
         })
@@ -1203,9 +1207,13 @@ class BambuPrinter(BasePrinter):
                         if nid == 0:
                             self.status['nozzle_diameter_right'] = entry.get('diameter')
                             self.status['nozzle_type_right'] = entry.get('type')
+                            self.status['nozzle_fila_id_right'] = entry.get('fila_id')
+                            self.status['nozzle_color_right'] = entry.get('color_m')
                         elif nid == 1:
                             self.status['nozzle_diameter_left'] = entry.get('diameter')
                             self.status['nozzle_type_left'] = entry.get('type')
+                            self.status['nozzle_fila_id_left'] = entry.get('fila_id')
+                            self.status['nozzle_color_left'] = entry.get('color_m')
                 elif 'nozzle_diameter' in p:
                     self.status['nozzle_diameter_right'] = p['nozzle_diameter']
                     self.status['nozzle_type_right'] = p.get('nozzle_type')
@@ -1387,6 +1395,7 @@ class BambuPrinter(BasePrinter):
             # Podem estar no topo ou dentro de 'print'
             ams_data = data.get('ams') or p.get('ams', {})
             vt_data = data.get('vt_tray') or p.get('vt_tray', {})
+            vir_slots = data.get('vir_slot') or p.get('vir_slot', [])
             
             # Determinar ams/tray ativos
             active_ams = -1
@@ -1449,7 +1458,9 @@ class BambuPrinter(BasePrinter):
                         'remain': f_remain,
                         'uuid': f_uuid,
                         'active': is_active,
-                        'empty': is_empty
+                        'empty': is_empty,
+                        'external': False,
+                        'target_nozzle': self.status.get('active_nozzle') if is_active else (0 if self.serial and self.serial.startswith('094') else None)
                     }
                     
                     if is_a1_series:
@@ -1463,15 +1474,36 @@ class BambuPrinter(BasePrinter):
                     trays.append(tray_data)
 
             # 2. Processar VT Tray (Carretel Externo/Lateral)
-            if vt_data:
-                is_active = (active_ams == 254 or active_ams == 255) # 255 as vezes significa externo em alguns modelos
-                f_type = vt_data.get('tray_type', '')
-                f_color = vt_data.get('tray_color', 'FFFFFF')
+            # Pode vir como dicionário 'vt_tray' (P1S/X1C sem AMS) ou lista 'vir_slot' (H2D)
+            external_slots = []
+            if isinstance(vir_slots, list) and len(vir_slots) > 0:
+                external_slots = vir_slots
+            elif vt_data:
+                external_slots = [vt_data]
+
+            for i, slot in enumerate(external_slots):
+                if not isinstance(slot, dict):
+                    continue
+                try:
+                    raw_id = slot.get('id')
+                    slot_id = int(raw_id) if raw_id not in [None, ""] else 254
+                except:
+                    slot_id = 254
+                
+                is_active = (active_ams == slot_id or active_ams == 255) # 255 as vezes significa externo em alguns modelos
+                f_type = slot.get('tray_type', '')
+                
+                cols = slot.get('cols', [])
+                if cols and isinstance(cols, list) and len(cols) > 0:
+                    f_color = cols[0]
+                else:
+                    f_color = slot.get('tray_color', 'FFFFFF')
+                
                 if not f_color.startswith('#'): f_color = '#' + f_color
-                f_remain = vt_data.get('remain', -1)
-                idx = vt_data.get('tray_info_idx', '')
-                f_brand = vt_data.get('tray_sub_brands', '')
-                f_uuid = vt_data.get('tray_uuid', '')
+                f_remain = slot.get('remain', -1)
+                idx = slot.get('tray_info_idx', '')
+                f_brand = slot.get('tray_sub_brands', '')
+                f_uuid = slot.get('tray_uuid', '')
                 
                 # Identificar nome amigável
                 f_name = get_bambu_filament_name(idx)
@@ -1480,10 +1512,17 @@ class BambuPrinter(BasePrinter):
                 elif f_name == "Unknown":
                     f_name = f_type or "Desconhecido"
 
+                # H2D mapping heuristic: se vir_slot[0] -> Nozzle 1 (Esquerdo), se vir_slot[1] -> Nozzle 0 (Direito)
+                # Vamos tentar atrelar dinamicamente:
+                target_nz = self.status.get('active_nozzle') if is_active else None
+                if target_nz is None and self.serial and self.serial.startswith('094'):
+                    if i == 0: target_nz = 1 # vir_slot[0] (id=254) -> Esquerdo
+                    elif i == 1: target_nz = 0 # vir_slot[1] (id=255) -> Direito
+
                 # Só adicionar se não estiver totalmente vazio ou se for o ativo
                 if f_type or is_active:
                     trays.append({
-                        'ams': 254, # ID reservado para Externo
+                        'ams': slot_id, # ID reservado para Externo (ex: 254, 255)
                         'id': 0,
                         'type': f_type,
                         'brand': f_brand,
@@ -1493,7 +1532,9 @@ class BambuPrinter(BasePrinter):
                         'remain': f_remain,
                         'humidity': 'N/A',
                         'active': is_active,
-                        'empty': not f_type
+                        'empty': not f_type,
+                        'external': True,
+                        'target_nozzle': target_nz
                     })
 
             if trays:
@@ -1563,10 +1604,37 @@ class BambuPrinter(BasePrinter):
     def _start_metadata_fetch(self, filename):
         if self.metadata_thread and self.metadata_thread.is_alive():
             return
-        self.metadata_thread = threading.Thread(target=self._fetch_metadata_ftp, args=(filename,), daemon=True)
+        # Pegar gcode_file também para tentar como fallback
+        gcode_file = self.status.get('gcode_file', '')
+        self.metadata_thread = threading.Thread(target=self._fetch_metadata_ftp, args=(filename, gcode_file), daemon=True)
         self.metadata_thread.start()
 
-    def _fetch_metadata_ftp(self, filename):
+    def _find_latest_3mf(self, ftp):
+        """Busca o arquivo .3mf mais recente nos diretórios conhecidos (Padrão ha-bambulab)."""
+        search_paths = ["/cache", "/model", "/data/Metadata", "/"]
+        try:
+            file_list = []
+            for path in search_paths:
+                try:
+                    items = []
+                    ftp.retrlines(f"LIST {path}", items.append)
+                    for item in items:
+                        parts = item.split()
+                        if len(parts) >= 9:
+                            name = " ".join(parts[8:])
+                            if name.lower().endswith('.3mf'):
+                                # Simplesmente pegamos o arquivo. Em /cache, costuma ser o mais recente.
+                                full_path = f"{path}/{name}" if path != "/" else f"/{name}"
+                                file_list.append(full_path)
+                                # Se acharmos no /cache, é 99% de chance de ser o atual da nuvem
+                                if path == "/cache": return full_path
+                except: continue
+            
+            return file_list[-1] if file_list else None
+        except:
+            return None
+
+    def _fetch_metadata_ftp(self, filename, gcode_filename=None):
         # Retries are important for X1C as the file might not be ready immediately
         # Aumentado para 12 tentativas (aprox 60s) como no exemplo oficial
         for attempt in range(12):
@@ -1582,14 +1650,20 @@ class BambuPrinter(BasePrinter):
                 ftp.prot_p()
                 
                 # Lista de caminhos para tentar encontrar o 3mf
-                # X1C e P1P as vezes usam nomes fixos ou pastas diferentes
-                search_files = [filename]
-                if not filename.endswith('.3mf'):
-                    search_files.append(filename + ".3mf")
-                    search_files.append(filename + ".gcode.3mf")
+                search_files = []
+                if filename:
+                    search_files.append(filename)
+                    if not filename.endswith('.3mf'):
+                        search_files.append(filename + ".3mf")
+                        search_files.append(filename + ".gcode.3mf")
+                
+                if gcode_filename and gcode_filename != filename:
+                    search_files.append(gcode_filename)
+                    if not gcode_filename.endswith('.3mf'):
+                        search_files.append(gcode_filename + ".3mf")
                 
                 # Nomes comuns em impressões via cloud
-                search_files.extend(["ftp_model.3mf", "model.3mf", "_model_.3mf"])
+                search_files.extend(["ftp_model.3mf", "model.3mf", "_model_.3mf", "temp.3mf"])
                 
                 target_path = None
                 for f_name in search_files:
@@ -1603,6 +1677,13 @@ class BambuPrinter(BasePrinter):
                             break
                         except: continue
                     if target_path: break
+                
+                # Fallback: Se não achou pelo nome, tenta o mais recente do /cache ou /model
+                if not target_path:
+                    latest = self._find_latest_3mf(ftp)
+                    if latest:
+                        target_path = latest
+                        log_info(f"[{self.ip}] FTP: Usando fallback para o arquivo mais recente encontrado: {target_path}")
                 
                 if not target_path:
                     log_info(f"[{self.ip}] FTP: Nenhum arquivo de metadados encontrado para '{filename}'. Tentando listar diretórios...")
