@@ -5,7 +5,7 @@ a = Analysis(
     ['deployments\\windows\\hub_gui.py'],
     pathex=['.'],
     binaries=[],
-    datas=[('templates', 'templates'), ('favicon.ico', '.'), ('favicon-32x32.png', '.')],
+    datas=[('templates', 'templates'), ('favicon.ico', '.'), ('favicon-32x32.png', '.'), ('VERSION', '.')],
     hiddenimports=['app', 'PIL', 'pystray', 'waitress', 'requests'],
     hookspath=[],
     hooksconfig={},

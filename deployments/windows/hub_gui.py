@@ -163,7 +163,15 @@ class HubLauncher:
                   bg="#3f3f3f", fg="#ffcccc", width=22, relief="flat",
                   command=self.quit_app, cursor="hand2").pack(pady=10)
 
-        tk.Label(self.root, text="v1.4.0 - aditivaflow.com.br",
+        # Versão dinâmica
+        try:
+            v_file = os.path.join(base_dir, 'VERSION')
+            with open(v_file, 'r') as f:
+                current_v = f.read().strip()
+        except:
+            current_v = "v1.5.1"
+
+        tk.Label(self.root, text=f"{current_v} - aditivaflow.com.br",
                  font=("Segoe UI", 8), fg="#333333", bg="#1a1a1a").pack(side="bottom", pady=8)
 
     # ------------------------------------------------------------------

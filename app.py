@@ -15,13 +15,22 @@ from concurrent.futures import ThreadPoolExecutor
 
 app = Flask(__name__)
 
+def get_resource_path(relative_path):
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
+
 @app.context_processor
 def inject_version():
     try:
-        with open("VERSION", "r") as f:
+        v_path = get_resource_path("VERSION")
+        if not os.path.exists(v_path):
+            # Fallback para raiz se não estiver no bundle ou cwd
+            v_path = "VERSION"
+        with open(v_path, "r") as f:
             v = f.read().strip()
     except:
-        v = "Dev"
+        v = "v1.5.1"
     return dict(app_version=v)
 
 CONFIG_FILE = 'config.json'
