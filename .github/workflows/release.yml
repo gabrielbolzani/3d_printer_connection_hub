@@ -28,7 +28,7 @@ jobs:
       - name: Build EXE
         run: |
           python -c "from PIL import Image; img = Image.open('favicon-32x32.png'); img.save('favicon.ico', format='ICO', sizes=[(16,16),(24,24),(32,32),(48,48),(64,64)]); print('ICO gerado')"
-          pyinstaller --noconsole --onefile --paths "." --hidden-import app --hidden-import PIL --hidden-import pystray --add-data "templates;templates" --add-data "favicon.ico;." --add-data "favicon-32x32.png;." --add-data "hms_pt-br.json;." --add-data "VERSION;." --icon "favicon.ico" --name "AditivaFlowHub" deployments/windows/hub_gui.py
+          pyinstaller --noconsole --onefile --paths "." --hidden-import app --hidden-import PIL --hidden-import pystray --add-data "templates;templates" --add-data "favicon.ico;." --add-data "favicon-32x32.png;." --add-data "hms_Classificado_pt-br.json;." --add-data "VERSION;." --icon "favicon.ico" --name "AditivaFlowHub" deployments/windows/hub_gui.py
           
       - name: Build Installer
         run: |
@@ -55,7 +55,7 @@ jobs:
       - name: Create Linux Package
         run: |
           mkdir -p package/deployments
-          cp -r app.py printer_drivers.py logger_config.py requirements.txt templates/ hms_pt-br.json VERSION package/
+          cp -r app.py printer_drivers.py logger_config.py requirements.txt templates/ hms_Classificado_pt-br.json VERSION package/
           cp -r deployments/ package/
           tar -czvf aditivaflow-hub.tar.gz -C package .
           mv dist/AditivaFlowHub.exe AditivaFlowHub-Windows.exe
