@@ -3,3 +3,4 @@ requests
 paho-mqtt
 psutil
 waitress
+pyserial

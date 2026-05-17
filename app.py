@@ -34,6 +34,7 @@ def inject_version():
     return dict(app_version=v)
 
 CONFIG_FILE = 'config.json'
+ENERGY_CONFIG_FILE = 'energy_config.json'
 PRINTERS = []
 PRINTERS_LOCK = threading.Lock()
 STATUS_CACHE = {}
@@ -114,6 +115,468 @@ def save_config(printers_config):
         print(f"Error saving config: {e}")
         if os.path.exists(temp_file):
             os.remove(temp_file)
+
+ENERGY_CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'energy_config.json')
+ENERGY_LOGS_FILE = os.path.join(os.path.dirname(__file__), 'energy_logs.json')
+ENERGY_TELEMETRY = {} # Cache para telemetria em tempo real
+SERIAL_LOCKS = {} # Locks por porta COM
+
+def load_energy_logs():
+    if not os.path.exists(ENERGY_LOGS_FILE):
+        return {}
+    try:
+        with open(ENERGY_LOGS_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except:
+        return {}
+
+def save_energy_logs():
+    try:
+        with open(ENERGY_LOGS_FILE + '.tmp', 'w', encoding='utf-8') as f:
+            json.dump(ENERGY_LOGS, f, indent=4, ensure_ascii=False)
+        os.replace(ENERGY_LOGS_FILE + '.tmp', ENERGY_LOGS_FILE)
+    except Exception as e:
+        print(f"Erro ao salvar energy_logs: {e}")
+
+ENERGY_LOGS = load_energy_logs()
+
+def log_energy_event(device_id, message):
+    if str(device_id) not in ENERGY_LOGS:
+        ENERGY_LOGS[str(device_id)] = []
+    event = {
+        "time": datetime.now().strftime("%H:%M:%S"),
+        "date": datetime.now().strftime("%d/%m/%Y"),
+        "msg": message
+    }
+    ENERGY_LOGS[str(device_id)].insert(0, event)
+    if len(ENERGY_LOGS[str(device_id)]) > 50:
+        ENERGY_LOGS[str(device_id)].pop()
+    save_energy_logs()
+    # Envia também para o console principal da aplicação
+    log_info(f"[Nobreak] {message}")
+
+def get_serial_lock(port):
+    if port not in SERIAL_LOCKS:
+        SERIAL_LOCKS[port] = threading.Lock()
+    return SERIAL_LOCKS[port]
+
+ENERGY_CONFIG_LOCK = threading.Lock()
+
+def load_energy_config():
+    with ENERGY_CONFIG_LOCK:
+        if not os.path.exists(ENERGY_CONFIG_FILE):
+            return []
+        try:
+            with open(ENERGY_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data if isinstance(data, list) else []
+        except:
+            return []
+
+def save_energy_config(config):
+    with ENERGY_CONFIG_LOCK:
+        try:
+            with open(ENERGY_CONFIG_FILE + '.tmp', 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=4, ensure_ascii=False)
+            os.replace(ENERGY_CONFIG_FILE + '.tmp', ENERGY_CONFIG_FILE)
+        except Exception as e:
+            log_error(f"Erro ao salvar energy_config: {e}")
+
+def read_nut_vars(host, port, ups_name, user='', password=''):
+    """Lê variáveis do servidor NUT via TCP e retorna um dicionário com os dados."""
+    import socket
+    NUT_VARS = [
+        'input.voltage', 'output.voltage', 'output.frequency',
+        'ups.load', 'battery.charge', 'battery.voltage',
+        'ups.temperature', 'ups.status', 'ups.realpower', 'output.current'
+    ]
+    result = {}
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        sock.connect((host, int(port)))
+        
+        def send_cmd(cmd):
+            sock.send((cmd + '\n').encode())
+            return sock.recv(512).decode().strip()
+        
+        if user:
+            send_cmd(f'USERNAME {user}')
+            send_cmd(f'PASSWORD {password}')
+        
+        for var in NUT_VARS:
+            try:
+                resp = send_cmd(f'GET VAR {ups_name} {var}')
+                # Formato: VAR ups input.voltage "127.4"
+                if resp.startswith('VAR'):
+                    value = resp.split('"')[1]
+                    result[var] = value
+            except: pass
+        
+        send_cmd('LOGOUT')
+        sock.close()
+    except Exception as e:
+        raise Exception(f"Falha NUT {host}:{port} - {e}")
+    return result
+
+def energy_polling_loop():
+    """Monitoramento em background para dispositivos de energia"""
+    import serial
+    import binascii
+    device_last_poll = {}
+    
+    while KEEP_RUNNING:
+        try:
+            config = load_energy_config()
+            if not config:
+                time.sleep(5)
+                continue
+                
+            now = time.time()
+            
+            for dev in config:
+                integration = dev.get('integration')
+                interval = float(dev.get('polling_interval', 3.0))
+                last_dev_poll = device_last_poll.get(dev['id'])
+                
+                if last_dev_poll and (now - last_dev_poll) < interval:
+                    continue
+                
+                dt = now - last_dev_poll if last_dev_poll else 0.0
+                device_last_poll[dev['id']] = now
+                
+                # ── NUT ──────────────────────────────────────────────────
+                if integration == 'nut':
+                    host = dev.get('nut_host', '')
+                    nut_port = dev.get('nut_port', 3493)
+                    ups_name = dev.get('nut_ups_name', 'ups')
+                    user = dev.get('nut_user', '')
+                    password = dev.get('nut_password', '')
+                    if not host: continue
+                    
+                    try:
+                        vars = read_nut_vars(host, nut_port, ups_name, user, password)
+                        
+                        input_vac  = float(vars.get('input.voltage', 0))
+                        output_vac = float(vars.get('output.voltage', 0))
+                        output_hz  = float(vars.get('output.frequency', 0))
+                        load_pct   = float(vars.get('ups.load', 0))
+                        batt_level = float(vars.get('battery.charge', 0))
+                        batt_v_raw = vars.get('battery.voltage')
+                        temp_c     = float(vars.get('ups.temperature', 0))
+                        status_str = vars.get('ups.status', '')
+                        
+                        # Interpreta status NUT: OL=rede, OB=bateria, LB=baixa
+                        em_uso = 'OB' in status_str
+                        batt_baixa = 'LB' in status_str
+                        
+                        # Tensão da bateria (somente se for válida)
+                        v_batt = None
+                        prev_tel = ENERGY_TELEMETRY.get(dev['id'], {}).get('telemetry', {})
+                        if batt_v_raw:
+                            try:
+                                val = float(batt_v_raw)
+                                if 10.0 < val < 70.0:
+                                    v_batt = val
+                            except: pass
+                        last_v = prev_tel.get('lastBatteryVoltage')
+                        last_ts = prev_tel.get('lastBatteryTimestamp')
+                        if v_batt is not None:
+                            last_v = v_batt; last_ts = time.time()
+                        
+                        # Tenta usar potência real do NUT, senão calcula
+                        watts = 0.0
+                        if 'ups.realpower' in vars:
+                            try:
+                                watts = float(vars['ups.realpower'])
+                            except: pass
+                        
+                        if watts == 0.0 and load_pct > 0:
+                            nominal_va = dev.get('nominal_va', 1800.0)
+                            fp = dev.get('power_factor', 0.7)
+                            watts = (load_pct / 100.0) * (nominal_va * fp)
+                            
+                        # Tenta usar corrente do NUT, senão calcula
+                        current_a = 0.0
+                        if 'output.current' in vars:
+                            try:
+                                current_a = float(vars['output.current'])
+                            except: pass
+                            
+                        if current_a == 0.0 and output_vac > 50:
+                            current_a = watts / output_vac
+                        
+                        prev = ENERGY_TELEMETRY.get(dev['id'], {}).get('telemetry', {})
+                        peak_watts = max(round(watts, 1), prev.get('peakWatts', 0))
+                        peak_current = max(round(current_a, 2), prev.get('peakCurrent', 0))
+                        min_vac = prev.get('minInputVac', input_vac)
+                        max_vac = prev.get('maxInputVac', input_vac)
+                        if input_vac > 50:
+                            if min_vac < 50 or input_vac < min_vac: min_vac = input_vac
+                            if input_vac > max_vac: max_vac = input_vac
+                        
+                        if dt > 0 and output_vac > 0:
+                            kwh_gain = (watts * (dt / 3600.0)) / 1000.0
+                            current_config = load_energy_config()
+                            for c_dev in current_config:
+                                if str(c_dev.get('id')) == str(dev['id']):
+                                    c_dev['accumulated_kwh'] = c_dev.get('accumulated_kwh', 0.0) + kwh_gain
+                                    dev['accumulated_kwh'] = c_dev['accumulated_kwh']
+                                    break
+                            save_energy_config(current_config)
+                        
+                        ENERGY_TELEMETRY[dev['id']] = {
+                            "success": True,
+                            "telemetry": {
+                                "inputVac": input_vac, "outputVac": output_vac,
+                                "outputHz": output_hz, "temperature": temp_c,
+                                "batteryVoltage": v_batt, "lastBatteryVoltage": last_v,
+                                "lastBatteryTimestamp": last_ts, "batterylevel": batt_level,
+                                "loadPct": load_pct, "bateriaEmUso": em_uso,
+                                "bateriaBaixa": batt_baixa, "watts": round(watts, 1),
+                                "peakWatts": peak_watts, "currentA": round(current_a, 2),
+                                "peakCurrent": peak_current, "minInputVac": min_vac,
+                                "maxInputVac": max_vac, "online": True,
+                                "timestamp": time.time(), "accumulated_kwh": dev.get('accumulated_kwh', 0)
+                            }
+                        }
+                        prev_online = ENERGY_TELEMETRY.get(dev['id'], {}).get('telemetry', {}).get('online', True)
+                        if not prev_online:
+                            log_energy_event(dev['id'], "✔ Conexão NUT restabelecida")
+                    except Exception as e:
+                        if dev['id'] in ENERGY_TELEMETRY:
+                            prev = ENERGY_TELEMETRY[dev['id']].get('telemetry', {})
+                            if prev.get('online'):
+                                log_energy_event(dev['id'], f"❌ Falha na conexão NUT: {e}")
+                            ENERGY_TELEMETRY[dev['id']]['telemetry']['online'] = False
+                
+                # ── SENSORLINK ───────────────────────────────────────────
+                elif integration == 'sensorlink':
+                    host = dev.get('sensorlink_host', '')
+                    if not host: continue
+                    
+                    try:
+                        resp = requests.get(f"http://{host}/status", timeout=5)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            tel = data.get('telemetry', {})
+                            
+                            ENERGY_TELEMETRY[dev['id']] = {
+                                "success": True,
+                                "telemetry": {
+                                    "inputVac": float(tel.get('inputVac', 0)),
+                                    "outputVac": float(tel.get('outputVac', 0)),
+                                    "watts": float(tel.get('watts', 0)),
+                                    "currentA": float(tel.get('currentA', 0)),
+                                    "temperature": float(tel.get('temperature', 0)),
+                                    "humidity": float(tel.get('humidity', 0)),
+                                    "accumulated_kwh": float(tel.get('accumulated_kwh', 0)),
+                                    "online": True,
+                                    "timestamp": time.time(),
+                                    "outputs": data.get('outputs', []),
+                                    "inputs": data.get('inputs', [])
+                                }
+                            }
+                            
+                            if 'accumulated_kwh' in tel:
+                                current_config = load_energy_config()
+                                for c_dev in current_config:
+                                    if str(c_dev.get('id')) == str(dev['id']):
+                                        c_dev['accumulated_kwh'] = float(tel['accumulated_kwh'])
+                                        dev['accumulated_kwh'] = c_dev['accumulated_kwh']
+                                        break
+                                save_energy_config(current_config)
+                                
+                            prev_online = ENERGY_TELEMETRY.get(dev['id'], {}).get('telemetry', {}).get('online', True)
+                            if not prev_online:
+                                log_energy_event(dev['id'], "✔ Conexão SensorLink restabelecida")
+                        else:
+                            raise Exception(f"Status code {resp.status_code}")
+                    except Exception as e:
+                        if dev['id'] in ENERGY_TELEMETRY:
+                            prev = ENERGY_TELEMETRY[dev['id']].get('telemetry', {})
+                            if prev.get('online'):
+                                log_energy_event(dev['id'], f"❌ Falha na conexão SensorLink: {e}")
+                            ENERGY_TELEMETRY[dev['id']]['telemetry']['online'] = False
+                
+                # ── TASMOTA ──────────────────────────────────────────────
+                elif integration == 'tasmota':
+                    host = dev.get('tasmota_host', '')
+                    if not host: continue
+                    
+                    try:
+                        resp = requests.get(f"http://{host}/cm?cmnd=Status%208", timeout=5)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            energy = data.get('StatusSNS', {}).get('ENERGY', {})
+                            
+                            watts = float(energy.get('Power', 0))
+                            volts = float(energy.get('Voltage', 0))
+                            current = float(energy.get('Current', 0))
+                            total = float(energy.get('Total', 0))
+                            
+                            ENERGY_TELEMETRY[dev['id']] = {
+                                "success": True,
+                                "telemetry": {
+                                    "inputVac": volts,
+                                    "watts": watts,
+                                    "currentA": current,
+                                    "accumulated_kwh": total,
+                                    "online": True,
+                                    "timestamp": time.time()
+                                }
+                            }
+                            
+                            if total > 0:
+                                current_config = load_energy_config()
+                                for c_dev in current_config:
+                                    if str(c_dev.get('id')) == str(dev['id']):
+                                        c_dev['accumulated_kwh'] = total
+                                        dev['accumulated_kwh'] = total
+                                        break
+                                save_energy_config(current_config)
+                                
+                            prev_online = ENERGY_TELEMETRY.get(dev['id'], {}).get('telemetry', {}).get('online', True)
+                            if not prev_online:
+                                log_energy_event(dev['id'], "✔ Conexão Tasmota restabelecida")
+                        else:
+                            raise Exception(f"Status code {resp.status_code}")
+                    except Exception as e:
+                        if dev['id'] in ENERGY_TELEMETRY:
+                            prev = ENERGY_TELEMETRY[dev['id']].get('telemetry', {})
+                            if prev.get('online'):
+                                log_energy_event(dev['id'], f"❌ Falha na conexão Tasmota: {e}")
+                            ENERGY_TELEMETRY[dev['id']]['telemetry']['online'] = False
+                
+                # ── NOBREAK SERIAL ───────────────────────────────────────
+                elif integration == 'nobreak':
+                    port = dev.get('port', '')
+                    if not port or port == 'auto': continue
+                    lock = get_serial_lock(port)
+                    if lock.locked(): continue
+                    
+                    try:
+                        with lock:
+                            with serial.Serial(port, baudrate=2400, timeout=1) as ser:
+                                ser.write(bytearray.fromhex("51 ff ff ff ff b3 0d"))
+                                response = ser.read(32)
+                                respHex = binascii.hexlify(bytearray(response)).decode('utf-8')
+                                print(f"[Energy Debug] Raw Hex: {respHex}")
+                                
+                                if len(respHex) >= 32 and respHex.startswith('3d'):
+                                    # Parsing dos valores
+                                    input_vac = int(respHex[6:10], 16) / 10.0
+                                    output_vac = int(respHex[10:14], 16) / 10.0
+                                    out_power_pct = int(respHex[14:18], 16) / 10.0
+                                    output_hz = int(respHex[18:22], 16) / 10.0
+                                    batt_level = int(respHex[22:26], 16) / 10.0
+                                    temp_c = int(respHex[26:30], 16) / 10.0
+                                    status_byte = int(respHex[30:32], 16)
+                                    bi = "{0:08b}".format(status_byte)
+
+                                    # Tenta encontrar a tensão da bateria em 3 lugares (varia por modelo SMS)
+                                    v_batt = None
+                                    prev_tel = ENERGY_TELEMETRY.get(dev['id'], {}).get('telemetry', {})
+                                    if prev_tel.get('online') is False:
+                                        log_energy_event(dev['id'], "✔ Conexão restabelecida com o Nobreak")
+                                    
+                                    pos_possiveis = [(2,6), (32,36), (36,40)]
+                                    for start, end in pos_possiveis:
+                                        if len(respHex) >= end:
+                                            try:
+                                                val = int(respHex[start:end], 16) / 10.0
+                                                # Faixa ampliada: 10V a 35V (cobre bancos de 12V e 24V carregando)
+                                                if 10.0 < val < 35.0:
+                                                    v_batt = val
+                                                    break
+                                            except: continue
+                                    
+                                    # Guarda o último valor válido e quando ele veio
+                                    last_v = prev_tel.get('lastBatteryVoltage')
+                                    last_ts = prev_tel.get('lastBatteryTimestamp')
+                                    
+                                    if v_batt is not None:
+                                        last_v = v_batt
+                                        last_ts = time.time()
+                                    
+                                    # Detectar Eventos de Rede
+                                    em_uso = bi[0] == '1'
+                                    prev = ENERGY_TELEMETRY.get(dev['id'], {}).get('telemetry', {})
+                                    if em_uso and not prev.get('bateriaEmUso'):
+                                        log_energy_event(dev['id'], "⚠ REDE CAIU: Operando por bateria")
+                                    elif not em_uso and prev.get('bateriaEmUso'):
+                                        log_energy_event(dev['id'], "✔ REDE VOLTOU: Carregando baterias")
+                                    
+                                    # Estimativa de Watts usando VA e Fator de Potência
+                                    nominal_va = dev.get('nominal_va', 1800.0)
+                                    fp = dev.get('power_factor', 0.7)
+                                    watts = (out_power_pct / 100.0) * (nominal_va * fp)
+                                    
+                                    # Cálculo de Corrente (A) = W / V
+                                    current_a = watts / output_vac if output_vac > 50 else 0
+                                    
+                                    # Picos e Extremos da Sessão (Em Memória)
+                                    peak_watts = max(round(watts, 1), prev.get('peakWatts', 0))
+                                    peak_current = max(round(current_a, 2), prev.get('peakCurrent', 0))
+                                    
+                                    min_vac = prev.get('minInputVac', input_vac)
+                                    max_vac = prev.get('maxInputVac', input_vac)
+                                    
+                                    if input_vac > 50: # Evita registrar 0V em quedas de rede
+                                        if min_vac < 50 or input_vac < min_vac:
+                                            min_vac = input_vac
+                                        if input_vac > max_vac:
+                                            max_vac = input_vac
+                                    
+                                    hours = dt / 3600.0
+                                    kwh_gain = (watts * hours) / 1000.0
+                                    
+                                    # Atualiza o arquivo de forma atômica para evitar sobrepor o reset
+                                    current_config = load_energy_config()
+                                    for c_dev in current_config:
+                                        if str(c_dev.get('id')) == str(dev['id']):
+                                            c_dev['accumulated_kwh'] = c_dev.get('accumulated_kwh', 0.0) + kwh_gain
+                                            dev['accumulated_kwh'] = c_dev['accumulated_kwh'] # Atualiza referência local
+                                            break
+                                    save_energy_config(current_config)
+                                    
+                                    ENERGY_TELEMETRY[dev['id']] = {
+                                        "success": True,
+                                        "telemetry": {
+                                            "inputVac": input_vac,
+                                            "outputVac": output_vac,
+                                            "outputHz": output_hz,
+                                            "temperature": temp_c,
+                                            "batteryVoltage": v_batt,
+                                            "lastBatteryVoltage": last_v,
+                                            "lastBatteryTimestamp": last_ts,
+                                            "batterylevel": batt_level,
+                                            "loadPct": out_power_pct,
+                                            "bateriaEmUso": em_uso,
+                                            "bateriaBaixa": bi[1] == '1',
+                                            "watts": round(watts, 1),
+                                            "peakWatts": peak_watts,
+                                            "currentA": round(current_a, 2),
+                                            "peakCurrent": peak_current,
+                                            "minInputVac": min_vac,
+                                            "maxInputVac": max_vac,
+                                            "online": True,
+                                            "timestamp": time.time(),
+                                            "raw": respHex
+                                        }
+                                    }
+                    except Exception as e:
+                        if dev['id'] in ENERGY_TELEMETRY:
+                            prev = ENERGY_TELEMETRY[dev['id']].get('telemetry', {})
+                            if prev.get('online'):
+                                log_energy_event(dev['id'], f"❌ Conexão perdida com o Nobreak: {e}")
+                            ENERGY_TELEMETRY[dev['id']]['telemetry']['online'] = False
+            
+
+        except Exception as e:
+            log_error(f"Erro no loop de energia: {e}")
+            
+        time.sleep(1) # Verifica a cada 1 segundo
 
 def load_token():
     if os.path.exists(AUTH_FILE):
@@ -274,6 +737,14 @@ def index():
 @app.route('/monitor')
 def monitor():
     return render_template('monitor.html')
+
+@app.route('/energy')
+def energy_page():
+    return render_template('energy.html')
+
+@app.route('/docs/sensorlink')
+def docs_sensorlink():
+    return render_template('docs_sensorlink.html')
 
 @app.route('/console')
 def console_page():
@@ -734,6 +1205,186 @@ def delete_printer():
     update_printers_once()
     return jsonify({"success": True})
 
+@app.route('/api/energy_devices', methods=['GET'])
+def get_energy_devices():
+    return jsonify(load_energy_config())
+
+@app.route('/api/energy_devices', methods=['POST'])
+def add_energy_device():
+    data = request.json
+    config = load_energy_config()
+    new_device = {
+        'id': str(int(time.time())),
+        'name': data.get('name'),
+        'code': data.get('code', ''),
+        'integration': data.get('integration'),
+        'brand': data.get('brand', ''),
+        'port': data.get('port', ''),
+        'nut_host': data.get('nut_host', ''),
+        'nut_port': int(data.get('nut_port', 3493)),
+        'nut_ups_name': data.get('nut_ups_name', 'ups'),
+        'nut_user': data.get('nut_user', ''),
+        'nut_password': data.get('nut_password', ''),
+        'sensorlink_host': data.get('sensorlink_host', ''),
+        'tasmota_host': data.get('tasmota_host', ''),
+        'associatedIds': data.get('associatedIds', []),
+        'associatedNames': data.get('associatedNames', []),
+        'nominal_va': float(data.get('nominal_va', 1800.0)),
+        'power_factor': float(data.get('power_factor', 0.7)),
+        'polling_interval': float(data.get('polling_interval', 3.0))
+    }
+    config.append(new_device)
+    save_energy_config(config)
+    return jsonify({"success": True, "device": new_device})
+
+@app.route('/api/energy_devices/<device_id>', methods=['PUT'])
+def update_energy_device(device_id):
+    data = request.json
+    config = load_energy_config()
+    for d in config:
+        if str(d.get('id')) == str(device_id):
+            d['name'] = data.get('name', d['name'])
+            d['code'] = data.get('code', d.get('code', ''))
+            d['integration'] = data.get('integration', d['integration'])
+            d['brand'] = data.get('brand', d.get('brand', ''))
+            d['port'] = data.get('port', d.get('port', ''))
+            d['nut_host'] = data.get('nut_host', d.get('nut_host', ''))
+            d['nut_port'] = int(data.get('nut_port', d.get('nut_port', 3493)))
+            d['nut_ups_name'] = data.get('nut_ups_name', d.get('nut_ups_name', 'ups'))
+            d['nut_user'] = data.get('nut_user', d.get('nut_user', ''))
+            d['nut_password'] = data.get('nut_password', d.get('nut_password', ''))
+            d['sensorlink_host'] = data.get('sensorlink_host', d.get('sensorlink_host', ''))
+            d['tasmota_host'] = data.get('tasmota_host', d.get('tasmota_host', ''))
+            d['associatedIds'] = data.get('associatedIds', d.get('associatedIds', []))
+            d['associatedNames'] = data.get('associatedNames', d.get('associatedNames', []))
+            d['nominal_va'] = float(data.get('nominal_va', d.get('nominal_va', 1800.0)))
+            d['power_factor'] = float(data.get('power_factor', d.get('power_factor', 0.7)))
+            d['polling_interval'] = float(data.get('polling_interval', d.get('polling_interval', 3.0)))
+            break
+    save_energy_config(config)
+    return jsonify({"success": True})
+
+@app.route('/api/energy_devices/<device_id>', methods=['DELETE'])
+def delete_energy_device(device_id):
+    config = load_energy_config()
+    new_config = [d for d in config if str(d.get('id')) != str(device_id)]
+    save_energy_config(new_config)
+    return jsonify({"success": True})
+
+@app.route('/api/energy_devices/<device_id>/reset', methods=['POST'])
+def reset_energy_consumption(device_id):
+    config = load_energy_config()
+    changed = False
+    for d in config:
+        if str(d.get('id')) == str(device_id):
+            d['accumulated_kwh'] = 0.0
+            d['peak_watts'] = 0.0
+            d['peak_current'] = 0.0
+            changed = True
+            break
+    if changed:
+        save_energy_config(config)
+    return jsonify({"success": True})
+
+@app.route('/api/system/ports', methods=['GET'])
+def get_system_ports():
+    try:
+        import serial.tools.list_ports
+        ports = [p.device for p in serial.tools.list_ports.comports()]
+        return jsonify({"success": True, "ports": ports})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/energy_devices/<device_id>/status', methods=['GET'])
+def get_energy_device_status(device_id):
+    config = load_energy_config()
+    device = next((d for d in config if str(d.get('id')) == str(device_id)), None)
+    if not device:
+        return jsonify({"success": False, "error": "Device not found"})
+
+    cached = ENERGY_TELEMETRY.get(str(device_id))
+    if cached:
+        res = cached.copy()
+        res['telemetry']['accumulated_kwh'] = round(device.get('accumulated_kwh', 0.0), 6)
+        return jsonify(res)
+        
+    return jsonify({"success": False, "error": "Aguardando leitura..."})
+
+@app.route('/api/energy_devices/<device_id>/logs', methods=['GET'])
+def get_energy_device_logs(device_id):
+    return jsonify(ENERGY_LOGS.get(str(device_id), []))
+
+@app.route('/api/energy_devices/<device_id>/logs', methods=['DELETE'])
+def delete_energy_device_logs(device_id):
+    if str(device_id) in ENERGY_LOGS:
+        ENERGY_LOGS[str(device_id)] = []
+        save_energy_logs()
+    return jsonify({"success": True})
+
+@app.route('/api/energy_devices/<device_id>/command', methods=['POST'])
+def send_energy_device_command(device_id):
+    data = request.json
+    cmd_type = data.get('cmd')
+    
+    config = load_energy_config()
+    device = next((d for d in config if str(d.get('id')) == str(device_id)), None)
+    if not device:
+        return jsonify({"success": False, "error": "Device not found"})
+
+    if device.get('integration') == 'nobreak':
+        port = device.get('port')
+        if not port or port == 'auto':
+            return jsonify({"success": False, "error": "Porta inválida"})
+            
+        cmds_map = {
+            'T': "54 00 10 00 00 9c 0d", # Teste 10s
+            'T60': "54 00 3C 00 00 70 0d", # Teste 60s (1m)
+            'M': "4d ff ff ff ff b7 0d", # Beep
+            'R': "52 00 C8 27 0F B0 0D", # Shutdown
+            'C': "43 ff ff ff ff c1 0d"  # Cancel/On (Se estiver em shutdown timer)
+        }
+        
+        hex_cmd = cmds_map.get(cmd_type)
+        if not hex_cmd:
+            return jsonify({"success": False, "error": "Comando desconhecido"})
+            
+        try:
+            import serial
+            import time
+            lock = get_serial_lock(port)
+            with lock:
+                with serial.Serial(port, baudrate=2400, timeout=1.5) as ser:
+                    cmd_bytes = bytearray.fromhex(hex_cmd)
+                    for cmd_byte in cmd_bytes:
+                        ser.write(bytearray([cmd_byte]))
+                        time.sleep(.050)
+            
+            cmd_names = {'T': 'Teste de Bateria', 'T60': 'Teste de Bateria (1m)', 'M': 'Toggle Beep', 'R': 'Forçar Desligamento', 'C': 'Cancelar/Ligar'}
+            log_energy_event(str(device_id), f"⌨ COMANDO: {cmd_names.get(cmd_type, cmd_type)}")
+            return jsonify({"success": True})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)})
+
+    elif device.get('integration') == 'tasmota':
+        host = device.get('tasmota_host')
+        if not host:
+            return jsonify({"success": False, "error": "Host inválido"})
+            
+        tasmota_cmd = f"Power {cmd_type}"
+            
+        try:
+            import requests
+            resp = requests.get(f"http://{host}/cm?cmnd={tasmota_cmd}", timeout=5)
+            if resp.status_code == 200:
+                log_energy_event(str(device_id), f"⌨ COMANDO: {tasmota_cmd}")
+                return jsonify({"success": True})
+            else:
+                return jsonify({"success": False, "error": f"Status code {resp.status_code}"})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)})
+
+    return jsonify({"success": False, "error": "Não suportado"})
+
 @app.route('/api/reorder_printers', methods=['POST'])
 def reorder_printers():
     p_id = request.json.get('id')
@@ -1056,6 +1707,57 @@ def aditivaflow_sync_loop():
             except Exception as e:
                 log_error(f"[Cloud] Erro ao sincronizar {p.config.get('name')}: {e}")
         
+        # ── SINCRONIZAÇÃO DE DISPOSITIVOS DE ENERGIA ─────────────────────
+        try:
+            energy_config = load_energy_config()
+            for dev in energy_config:
+                if not KEEP_RUNNING: break
+                
+                sync_code = dev.get('code') # O usuário chamou de platform token, mas salvamos em 'code'
+                if not sync_code: continue
+                
+                try:
+                    tel_data = ENERGY_TELEMETRY.get(dev['id'], {})
+                    if not tel_data.get('success'): continue
+                    
+                    tel = tel_data.get('telemetry', {})
+                    
+                    payload = {
+                        "sync_code": sync_code,
+                        "state": "online" if tel.get('online') else "offline",
+                        "inputVac": tel.get('inputVac', 0),
+                        "outputVac": tel.get('outputVac', 0),
+                        "watts": tel.get('watts', 0),
+                        "currentA": tel.get('currentA', 0),
+                        "temperature": tel.get('temperature', 0),
+                        "humidity": tel.get('humidity', 0),
+                        "accumulated_kwh": tel.get('accumulated_kwh', 0),
+                        "integration": dev.get('integration'),
+                        "timestamp": tel.get('timestamp', time.time())
+                    }
+                    
+                    if 'outputs' in tel:
+                        payload['outputs'] = tel['outputs']
+                    if 'inputs' in tel:
+                        payload['inputs'] = tel['inputs']
+                        
+                    log_cloud(f"Sincronizando Dispositivo Energia {dev['name']}: {payload['state']}")
+                    
+                    try:
+                        sync_resp = session.patch(f"{base_url}/hub/sync", headers=headers, json=payload, timeout=5)
+                        if sync_resp.status_code in [404, 405]:
+                            sync_resp = session.post(f"{base_url}/hub/sync", headers=headers, json=payload, timeout=5)
+                    except:
+                        sync_resp = session.post(f"{base_url}/hub/sync", headers=headers, json=payload, timeout=5)
+                        
+                    if sync_resp.status_code != 200:
+                        log_warn(f"Erro Cloud Energia ({dev['name']}): Status {sync_resp.status_code} - {sync_resp.text[:120]}")
+                        
+                except Exception as e:
+                    log_error(f"[Cloud] Erro ao sincronizar dispositivo energia {dev.get('name')}: {e}")
+        except Exception as e:
+            log_error(f"[Cloud] Erro ao carregar config de energia para sync: {e}")
+        
         time.sleep(5) # Intervalo entre ciclos de sync
 
 def save_usage_periodically():
@@ -1085,6 +1787,7 @@ def start_background_tasks():
     threading.Thread(target=save_usage_periodically, daemon=True, name="UsageSaver").start()
     threading.Thread(target=polling_loop, daemon=True, name="PollingLoop").start()
     threading.Thread(target=aditivaflow_sync_loop, daemon=True, name="CloudSync").start()
+    threading.Thread(target=energy_polling_loop, daemon=True, name="EnergyPolling").start()
 
 if __name__ == '__main__':
     import socket

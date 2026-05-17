@@ -1,0 +1,1097 @@
+{% extends "base.html" %}
+
+{% block title %}Energy - AditivaFlow{% endblock %}
+
+{% block header_title %}Energy Monitor{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-primary" onclick="openAddDeviceModal()">
+    <i class="fas fa-plus"></i> Adicionar Dispositivo
+</button>
+{% endblock %}
+
+{% block content %}
+<style>
+    .energy-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+        gap: 1.5rem;
+    }
+
+    .energy-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        padding: 1.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        transition: border-color 0.3s ease;
+    }
+
+    .energy-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+    }
+
+    .energy-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: var(--text-1);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .energy-sub {
+        font-size: 0.8rem;
+        color: var(--text-2);
+        margin-top: 2px;
+    }
+
+    .tabs-header {
+        display: flex;
+        gap: 5px;
+        margin-bottom: 1rem;
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 5px;
+    }
+
+    .tab-btn {
+        background: none;
+        border: none;
+        color: var(--text-2);
+        padding: 5px 10px;
+        cursor: pointer;
+        font-size: 0.85rem;
+        border-radius: 4px;
+        transition: all 0.2s;
+    }
+
+    .tab-btn.active {
+        background: var(--accent);
+        color: white;
+        font-weight: bold;
+    }
+
+    .tab-btn:hover:not(.active) {
+        background: rgba(255, 255, 255, 0.1);
+        color: var(--text-1);
+    }
+
+    .energy-icon-container {
+        width: 55px;
+        height: 55px;
+        border-radius: 12px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        background: rgba(0, 0, 0, 0.2);
+        transition: all 0.3s ease;
+    }
+
+    .energy-stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        background: rgba(0, 0, 0, 0.2);
+        padding: 1rem;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.02);
+    }
+
+    .stat-label {
+        font-size: 0.62rem;
+        color: var(--text-2);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .stat-value {
+        font-size: 1rem;
+        font-weight: 700;
+        color: var(--text-1);
+        margin-top: 4px;
+        display: flex;
+        align-items: baseline;
+        gap: 4px;
+    }
+
+    .stat-unit {
+        font-size: 0.7rem;
+        font-weight: 500;
+        color: var(--text-3);
+    }
+
+    .peak-indicator {
+        font-size: 0.6rem;
+        color: var(--yellow);
+        opacity: 0.8;
+        margin-top: 2px;
+    }
+
+    .status-indicator {
+        font-size: 0.7rem;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 4rem 1rem;
+        color: var(--text-2);
+        grid-column: 1 / -1;
+        background: var(--surface);
+        border: 1px dashed var(--border);
+        border-radius: var(--radius-lg);
+    }
+
+    .blink-warning {
+        animation: blinker 1.5s linear infinite;
+        color: var(--red) !important;
+    }
+
+    @keyframes blinker {
+        50% {
+            opacity: 0.3;
+        }
+    }
+
+    .log-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
+    .log-item {
+        padding: 8px 12px;
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 6px;
+        font-size: 0.8rem;
+        border-left: 3px solid var(--accent);
+    }
+</style>
+
+<div class="energy-grid" id="energy-devices">
+    <div class="empty-state">
+        <i class="fas fa-bolt"></i>
+        <h3>Carregando dispositivos...</h3>
+    </div>
+</div>
+
+<!-- Modal Adicionar/Editar Dispositivo -->
+<div id="addDeviceModal" class="modal">
+    <div class="modal-content">
+        <button class="close-btn" onclick="closeAddDeviceModal()"><i class="fas fa-times"></i></button>
+        <h2 id="modalTitle"><i class="fas fa-bolt"></i> Novo Dispositivo</h2>
+        <div class="tabs-header">
+            <button class="tab-btn active" onclick="switchTab('config')" id="tabBtnConfig">Configuração</button>
+            <button class="tab-btn" onclick="switchTab('assoc')" id="tabBtnAssoc">Associação</button>
+        </div>
+
+        <div id="tabContentConfig" class="tab-content">
+            <div class="form-group">
+                <label>Nome do Dispositivo *</label>
+                <input type="text" id="devName" placeholder="Ex: Nobreak Central" required>
+            </div>
+            <div class="form-group">
+                <label>Platform Token</label>
+                <input type="text" id="devCode" placeholder="Gerado na Plataforma">
+            </div>
+            <div class="form-group">
+                <label>Tipo de Integração
+                    <a id="docLinkNut" href="https://networkupstools.org/" target="_blank" style="display:none; color:var(--accent); margin-left: 5px;" title="Ver documentação do NUT"><i class="fas fa-info-circle"></i></a>
+                    <a id="docLinkSensorLink" href="/docs/sensorlink" target="_blank" style="display:none; color:var(--accent); margin-left: 5px;" title="Ver documentação do SensorLink"><i class="fas fa-info-circle"></i></a>
+                    <a id="docLinkTasmota" href="https://tasmota.github.io/docs/" target="_blank" style="display:none; color:var(--accent); margin-left: 5px;" title="Ver documentação do Tasmota"><i class="fas fa-info-circle"></i></a>
+                </label>
+                <select id="devIntegration" onchange="toggleIntegrationFields()">
+                    <option value="">Selecione uma opção</option>
+                    <option value="nobreak">Nobreak</option>
+                    <option value="nut">NUT - Network UPS Tools (Experimental)</option>
+                    <option value="sensorlink">SensorLink (Experimental)</option>
+                    <option value="tasmota">Tasmota (Experimental)</option>
+                </select>
+            </div>
+            <div id="nobreakFields"
+                style="display: none; background: rgba(0,0,0,0.15); padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                <div class="form-group">
+                    <label>Marca e Modelo <a id="brandLink" href="https://www.sms.com.br/produtos/detalhe/nobreaks-ups-1/line-interactive-senoidal/manager-iii-senoidal-ng-1800-va/#pane-beneficios" target="_blank" style="display:none; color:var(--accent); margin-left: 5px;" title="Ver detalhes no site do fabricante"><i class="fas fa-info-circle"></i></a></label>
+                    <select id="devBrand" onchange="toggleBrandLink()">
+                        <option value="sms_manager_iii">SMS Manager III Senoidal - Serial</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Método de Conexão (Porta USB)</label>
+                    <select id="devPort">
+                        <option value="auto">Auto-Detectar</option>
+                    </select>
+                </div>
+                <div class="form-group" style="display: flex; gap: 10px;">
+                    <div style="flex: 2;">
+                        <label>Potência Nominal (VA)</label>
+                        <input type="number" id="devNominalVA" value="1800" placeholder="Ex: 1800">
+                    </div>
+                    <div style="flex: 1;">
+                        <label>Fator de Potência (FP)</label>
+                        <input type="number" id="devFP" value="0.7" step="0.05" min="0" max="1" placeholder="Ex: 0.7">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Intervalo de Leitura (Segundos)</label>
+                    <input type="number" id="devInterval" value="3" min="1" max="60" placeholder="Ex: 3">
+                </div>
+            </div>
+            <div id="nutFields"
+                style="display: none; background: rgba(0,0,0,0.15); padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                <div class="form-group" style="display: flex; gap: 10px;">
+                    <div style="flex: 3;">
+                        <label>Host / IP do Servidor NUT</label>
+                        <input type="text" id="nutHost" placeholder="Ex: 192.168.0.10">
+                    </div>
+                    <div style="flex: 1;">
+                        <label>Porta</label>
+                        <input type="number" id="nutPort" value="3493" placeholder="3493">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Nome do UPS no NUT</label>
+                    <input type="text" id="nutUpsName" value="ups" placeholder="Ex: ups">
+                </div>
+                <div class="form-group" style="display: flex; gap: 10px;">
+                    <div style="flex: 1;">
+                        <label>Usuário (Opcional)</label>
+                        <input type="text" id="nutUser" placeholder="Ex: nutuser">
+                    </div>
+                    <div style="flex: 1;">
+                        <label>Senha (Opcional)</label>
+                        <input type="password" id="nutPassword" placeholder="••••••">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Intervalo de Leitura (Segundos)</label>
+                    <input type="number" id="nutInterval" value="5" min="1" max="60" placeholder="Ex: 5">
+                </div>
+            </div>
+            
+            <div id="sensorlinkFields"
+                style="display: none; background: rgba(0,0,0,0.15); padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+                    <span style="font-weight: 600; font-size: 0.9rem;">Configurações do SensorLink</span>
+                    <a href="/docs/sensorlink" target="_blank" style="color:var(--accent); font-size: 0.8rem; text-decoration: none;" title="Ver documentação do protocolo SensorLink"><i class="fas fa-info-circle"></i> Documentação</a>
+                </div>
+                <div class="form-group">
+                    <label>Host / IP do Dispositivo SensorLink</label>
+                    <input type="text" id="sensorlinkHost" placeholder="Ex: 192.168.0.50">
+                </div>
+                <div class="form-group">
+                    <label>Intervalo de Leitura (Segundos)</label>
+                    <input type="number" id="sensorlinkInterval" value="5" min="1" max="60" placeholder="Ex: 5">
+                </div>
+            </div>
+
+            <div id="tasmotaFields"
+                style="display: none; background: rgba(0,0,0,0.15); padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+                    <span style="font-weight: 600; font-size: 0.9rem;">Configurações do Tasmota</span>
+                    <a href="https://tasmota.github.io/docs/" target="_blank" style="color:var(--accent); font-size: 0.8rem; text-decoration: none;" title="Ver documentação do Tasmota"><i class="fas fa-info-circle"></i> Documentação</a>
+                </div>
+                <div class="form-group">
+                    <label>Host / IP do Dispositivo Tasmota</label>
+                    <input type="text" id="tasmotaHost" placeholder="Ex: 192.168.0.50">
+                </div>
+                <div class="form-group">
+                    <label>Intervalo de Leitura (Segundos)</label>
+                    <input type="number" id="tasmotaInterval" value="5" min="1" max="60" placeholder="Ex: 5">
+                </div>
+            </div>
+        </div>
+
+        <div id="tabContentAssoc" class="tab-content" style="display: none;">
+            <div class="form-group">
+                <label>Associação (Máquinas)</label>
+                <div id="machineCheckboxes"
+                    style="display:flex; flex-direction:column; gap:8px; max-height: 250px; overflow-y:auto; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px;">
+                    <span style="color:var(--text-3); font-size:0.8rem;">Carregando...</span>
+                </div>
+            </div>
+        </div>
+        <div class="actions" style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <button class="btn btn-primary" onclick="saveDevice()">Salvar</button>
+                <button class="btn btn-secondary" onclick="closeAddDeviceModal()">Cancelar</button>
+            </div>
+            <button id="btnDeleteDevice" class="btn btn-danger" style="display: none;" onclick="confirmDeleteDevice()"><i class="fas fa-trash"></i> Excluir</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Confirmação de Exclusão -->
+<div id="deleteConfirmModal" class="modal">
+    <div class="modal-content" style="max-width: 400px; text-align: center;">
+        <div style="color: var(--red); font-size: 3rem; margin-bottom: 1rem;">
+            <i class="fas fa-exclamation-triangle"></i>
+        </div>
+        <h2>Excluir Dispositivo?</h2>
+        <p style="color: var(--text-2); margin-bottom: 1.5rem;">Tem certeza que deseja excluir este dispositivo? Esta ação não pode ser desfeita.</p>
+        <div style="display: flex; justify-content: center; gap: 1rem;">
+            <button class="btn btn-danger" onclick="executeDeleteDevice()">Sim, Excluir</button>
+            <button class="btn btn-secondary" onclick="closeDeleteModal()">Cancelar</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Controle de Dispositivos -->
+<div id="controlDeviceModal" class="modal">
+    <div class="modal-content" style="max-width: 400px;">
+        <button class="close-btn" onclick="closeControlDeviceModal()"><i class="fas fa-times"></i></button>
+        <h2 id="controlModalTitle"><i class="fas fa-gamepad"></i> Controle do Dispositivo</h2>
+        
+        <!-- Bloco Nobreak -->
+        <div id="nobreakControlBlock" style="display: none; flex-direction: column; gap: 0.8rem; margin-top: 1rem;">
+            <button class="btn btn-secondary" style="justify-content: flex-start; padding: 0.8rem;"
+                onclick="sendCommand('C', this)"><i class="fas fa-play" style="width: 25px; color: var(--green);"></i> Cancelar Shutdown / Ligar</button>
+            <button class="btn btn-secondary" style="justify-content: flex-start; padding: 0.8rem;"
+                onclick="sendCommand('T', this)"><i class="fas fa-vial" style="width: 25px;"></i> Teste de Bateria (10s)</button>
+            <button class="btn btn-secondary" style="justify-content: flex-start; padding: 0.8rem;"
+                onclick="sendCommand('T60', this)"><i class="fas fa-vial" style="width: 25px;"></i> Teste de Bateria (1m)</button>
+            <button class="btn btn-secondary" style="justify-content: flex-start; padding: 0.8rem;"
+                onclick="sendCommand('M', this)"><i class="fas fa-volume-mute" style="width: 25px;"></i> Beep On/Off</button>
+            <button class="btn btn-secondary" style="justify-content: flex-start; padding: 0.8rem; color: var(--red);"
+                onclick="sendCommand('R', this)"><i class="fas fa-power-off" style="width: 25px;"></i> Forçar Shutdown</button>
+        </div>
+        
+        <!-- Bloco Tasmota -->
+        <div id="tasmotaControlBlock" style="display: none; flex-direction: column; gap: 0.8rem; margin-top: 1rem;">
+            <button class="btn btn-primary" style="justify-content: flex-start; padding: 0.8rem;"
+                onclick="sendCommand('ON', this)"><i class="fas fa-power-off"></i> Ligar</button>
+            <button class="btn btn-danger" style="justify-content: flex-start; padding: 0.8rem;"
+                onclick="sendCommand('OFF', this)"><i class="fas fa-power-off"></i> Desligar</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Logs -->
+<div id="logsModal" class="modal">
+    <div class="modal-content" style="max-width: 500px;">
+        <button class="close-btn" onclick="document.getElementById('logsModal').style.display='none'"><i
+                class="fas fa-times"></i></button>
+        <h2><i class="fas fa-history"></i> Histórico de Eventos</h2>
+        <div id="logsContainer" class="log-list" style="margin-top: 1rem;"></div>
+        <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
+            <button class="btn btn-secondary" style="color: var(--red); font-size: 0.75rem; padding: 4px 8px;"
+                onclick="clearLogs()"><i class="fas fa-trash"></i> Apagar Logs</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Dados Brutos -->
+<div id="rawModal" class="modal">
+    <div class="modal-content" style="max-width: 500px;">
+        <button class="close-btn" onclick="closeRawModal()"><i class="fas fa-times"></i></button>
+        <h2><i class="fas fa-terminal"></i> Dado Bruto (Serial)</h2>
+        <div style="background: rgba(0,0,0,0.3); padding: 1rem; border-radius: 8px; font-family: monospace; font-size: 0.8rem; margin-top: 1rem; word-break: break-all; max-height: 300px; overflow-y: auto;"
+            id="rawContainer">
+            Aguardando dados...
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
+            <div style="font-size: 0.7rem; color: var(--text-3);">
+                * Console em tempo real. Limite de 50 linhas para não travar.
+            </div>
+            <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 0.7rem;" onclick="copyRawData(this)"><i
+                    class="fas fa-copy"></i> Copiar</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Informação do Protocolo -->
+<div id="infoModal" class="modal">
+    <div class="modal-content" style="max-width: 600px;">
+        <button class="close-btn" onclick="document.getElementById('infoModal').style.display='none'"><i
+                class="fas fa-times"></i></button>
+        <h2><i class="fas fa-info-circle"></i> Informações do Dispositivo</h2>
+        
+        <div class="tabs-header" style="margin-bottom: 1rem;">
+            <button class="tab-btn active" onclick="switchInfoTab('protocol')" id="tabBtnInfoProtocol">Protocolo</button>
+            <button class="tab-btn" onclick="switchInfoTab('json')" id="tabBtnInfoJson">Payload JSON</button>
+        </div>
+
+        <div id="tabContentInfoProtocol" class="tab-content" style="font-size: 0.8rem; line-height: 1.4;">
+            <div id="protocolNobreak" style="display: block;">
+                <p>O Hub se comunica com o nobreak via Serial (RS232) enviando comandos e interpretando as respostas em
+                    hexadecimal.</p>
+    
+                <h3 style="margin-top:1rem; color:var(--accent); font-size:0.9rem;">Comando de Leitura (Q)</h3>
+                <p>Enviamos: <code>51 ff ff ff ff b3 0d</code></p>
+                <p>A resposta começa com <code>3d</code> (=) e tem o seguinte formato:</p>
+    
+                <div style="background:rgba(0,0,0,0.2); padding:10px; border-radius:5px; font-family:monospace; margin-top:5px; font-size:0.75rem; word-break:break-all;"
+                    id="infoExample">
+                    3d 0000 0507 0471 001e 0258 0384 01db 29 3e 0d
+                </div>
+    
+                <ul style="margin-top:10px; list-style:none; padding-left:0; font-size:0.75rem;">
+                    <li style="margin-top:3px;"><b style="color:var(--accent);">3d</b>: Cabeçalho do pacote (=).</li>
+                    <li style="margin-top:3px;"><b style="color:var(--accent);">0000</b>: Tensão da Bateria (Alguns modelos
+                        não enviam).</li>
+                    <li style="margin-top:3px;"><b style="color:var(--accent);">0507</b>: Tensão de Entrada (0507 hex = 1287
+                        / 10 = 128.7V).</li>
+                    <li style="margin-top:3px;"><b style="color:var(--accent);">0471</b>: Tensão de Saída (0471 hex = 1137 /
+                        10 = 113.7V).</li>
+                    <li style="margin-top:3px;"><b style="color:var(--accent);">001e</b>: Carga de Saída % (001e hex = 30 /
+                        10 = 3.0%).</li>
+                    <li style="margin-top:3px;"><b style="color:var(--accent);">0258</b>: Frequência (0258 hex = 600 / 10 =
+                        60.0Hz).</li>
+                    <li style="margin-top:3px;"><b style="color:var(--accent);">0384</b>: Nível da Bateria % (0384 hex = 900
+                        / 10 = 90.0%).</li>
+                    <li style="margin-top:3px;"><b style="color:var(--accent);">01db</b>: Temperatura (01db hex = 475 / 10 =
+                        47.5°C).</li>
+                    <li style="margin-top:3px;"><b style="color:var(--accent);">29</b>: Status Byte (Bit 0: Rede, Bit 1:
+                        Bateria Baixa).</li>
+                </ul>
+    
+                <h3 style="margin-top:1rem; color:var(--accent); font-size:0.9rem;">Comandos de Controle</h3>
+                <ul style="margin-top:5px; list-style:none; padding-left:0; font-size:0.75rem;">
+                    <li style="margin-top:3px;"><b>Teste 10s</b>: <code>54 00 10 00 00 9c 0d</code></li>
+                    <li style="margin-top:3px;"><b>Teste 60s</b>: <code>54 00 3C 00 00 70 0d</code></li>
+                    <li style="margin-top:3px;"><b>Toggle Beep</b>: <code>4d ff ff ff ff b7 0d</code></li>
+                    <li style="margin-top:3px;"><b>Shutdown</b>: <code>52 00 C8 27 0F B0 0D</code></li>
+                    <li style="margin-top:3px;"><b>Cancelar</b>: <code>43 ff ff ff ff c1 0d</code></li>
+                </ul>
+    
+                <h3 style="margin-top:1rem; color:var(--accent); font-size:0.9rem;">Cálculo de Consumo</h3>
+                <p>A potência em Watts é calculada multiplicando a Carga de Saída (%) pela potência nominal do nobreak. O consumo acumulado (kWh) é calculado integrando essa potência ao longo do tempo.</p>
+            </div>
+            
+            <div id="protocolSensorLink" style="display: none;">
+                <div style="text-align: center; margin-bottom: 1rem;">
+                    <i class="fas fa-plug" style="font-size: 2rem; color: var(--accent);"></i>
+                </div>
+                <p>Este dispositivo utiliza o protocolo <strong>SensorLink</strong>.</p>
+                <p>Neste modo, o Hub faz requisições HTTP para o IP configurado para ler sensores e atuar nas saídas.</p>
+                <p style="margin-top: 1rem;">
+                    <a href="/docs/sensorlink" target="_blank" class="btn btn-secondary" style="width: 100%; text-align: center; justify-content: center; text-decoration: none;">
+                        <i class="fas fa-external-link-alt"></i> Ver Documentação Completa
+                    </a>
+                </p>
+            </div>
+            
+            <div id="protocolNut" style="display: none;">
+                <div style="text-align: center; margin-bottom: 1rem;">
+                    <i class="fas fa-network-wired" style="font-size: 2rem; color: var(--accent);"></i>
+                </div>
+                <p>Este dispositivo utiliza a integração <strong>NUT (Network UPS Tools)</strong>.</p>
+                <p>O Hub se comunica com o servidor NUT via TCP na porta configurada para ler as variáveis do nobreak.</p>
+            </div>
+        </div>
+
+        <div id="tabContentInfoJson" class="tab-content" style="display:none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <span style="font-size: 0.8rem; color: var(--text-3);">Payload compilado para envio à plataforma</span>
+                <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 0.7rem;" onclick="copyInfoJson(this)"><i class="fas fa-copy"></i> Copiar</button>
+            </div>
+            <pre id="infoJsonContainer" style="background:rgba(0,0,0,0.3); padding:1rem; border-radius:8px; font-family:monospace; font-size:0.8rem; max-height:400px; overflow-y:auto; color:var(--green);"></pre>
+        </div>
+    </div>
+</div>
+
+<script>
+    let availableMachines = [];
+    let energyDevices = [];
+    let deviceTelemetry = {};
+    let pollingInterval = null;
+    let controllingId = null;
+    let editingId = null;
+    let currentRawId = null;
+    let lastRawData = {};
+    let currentLogsId = null;
+
+    async function initPage() { await loadMachines(); await fetchDevices(); renderDevices(); startPolling(); startCounterLoop(); }
+    initPage();
+
+    async function loadMachines() { const resp = await fetch('/api/backup'); const data = await resp.json(); if (data.success) availableMachines = data.backup.printers; }
+    async function fetchDevices() { const resp = await fetch('/api/energy_devices'); energyDevices = await resp.json(); }
+    function startPolling() { if (pollingInterval) clearInterval(pollingInterval); pollTelemetry(); pollingInterval = setInterval(pollTelemetry, 1000); } // Polling a cada 1s
+
+    async function pollTelemetry() {
+        let needsRender = false;
+        for (const dev of energyDevices) {
+            try {
+                const resp = await fetch('/api/energy_devices/' + dev.id + '/status');
+                const data = await resp.json();
+                if (data.success && data.telemetry) {
+                    const oldTel = deviceTelemetry[dev.id] || {};
+                    // Compara ignorando timestamp e raw para evitar re-render à toa
+                    const oldCompare = JSON.stringify({ ...oldTel, timestamp: null, raw: null });
+                    const newCompare = JSON.stringify({ ...data.telemetry, timestamp: null, raw: null });
+
+                    if (oldCompare !== newCompare) {
+                        needsRender = true;
+                    }
+
+                    deviceTelemetry[dev.id] = data.telemetry;
+
+                    // Se o modal de dados brutos estiver aberto para este dispositivo
+                    if (currentRawId === dev.id && data.telemetry.raw) {
+                        const el = document.getElementById('rawContainer');
+                        if (lastRawData[dev.id] !== data.telemetry.raw) {
+                            lastRawData[dev.id] = data.telemetry.raw;
+                            const timeStr = new Date().toLocaleTimeString();
+
+                            // Se era a mensagem padrão, limpa
+                            if (el.textContent.trim() === "Aguardando dados...") {
+                                el.innerHTML = "";
+                            }
+
+                            el.innerHTML += `<div style="margin-top:4px;"><span style="color:var(--accent);">[${timeStr}]</span> ${data.telemetry.raw}</div>`;
+
+                            // Limita a 50 linhas para não pesar
+                            while (el.children.length > 50) {
+                                el.removeChild(el.firstChild);
+                            }
+
+                            el.scrollTop = el.scrollHeight; // Auto-scroll
+                        }
+                    }
+                }
+            } catch (e) { }
+        }
+        // Só atualiza a tela se algum dado REAL mudou (voltagem, watts, etc)
+        if (needsRender) {
+            renderDevices();
+        }
+    }
+
+    function formatTime(seconds) {
+        if (seconds < 60) return seconds + 's';
+        if (seconds < 3600) return Math.floor(seconds / 60) + 'm';
+        if (seconds < 86400) return Math.floor(seconds / 3600) + 'h';
+        return Math.floor(seconds / 86400) + 'd';
+    }
+
+    function startCounterLoop() {
+        setInterval(() => {
+            document.querySelectorAll('.time-since-update').forEach(el => {
+                const ts = el.dataset.timestamp;
+                if (ts) {
+                    const now = Math.floor(Date.now() / 1000);
+                    const diff = now - Math.floor(parseFloat(ts));
+                    const counterEl = el.querySelector('.sec-counter');
+                    if (counterEl) {
+                        counterEl.textContent = diff;
+                    }
+
+                    // Se passar de 15s e ainda não estava marcado como offline na classe
+                    if (diff > 15 && !el.dataset.offlineTriggered) {
+                        el.dataset.offlineTriggered = "true";
+                        renderDevices(); // Força re-render para mostrar estado offline
+                    }
+                }
+            });
+
+            // Atualiza tempo da bateria
+            document.querySelectorAll('.battery-last-seen').forEach(el => {
+                const ts = el.dataset.timestamp;
+                if (ts) {
+                    const now = Math.floor(Date.now() / 1000);
+                    const diff = now - Math.floor(parseFloat(ts));
+                    el.textContent = formatTime(diff);
+                }
+            });
+        }, 1000);
+    }
+
+    function renderDevices() {
+        const grid = document.getElementById('energy-devices');
+        grid.innerHTML = '';
+
+        if (energyDevices.length === 0) {
+            grid.innerHTML = `<div class="empty-state"><i class="fas fa-bolt"></i><h3>Nenhum dispositivo configurado</h3><button class="btn btn-primary" onclick="openAddDeviceModal()">Adicionar</button></div>`;
+            return;
+        }
+
+        energyDevices.forEach((dev) => {
+            const tel = deviceTelemetry[dev.id] || {};
+
+            // Calcula tempo desde a última comunicação
+            const now = Math.floor(Date.now() / 1000);
+            const lastUpdate = tel.timestamp ? Math.floor(tel.timestamp) : null;
+            const diff = lastUpdate ? (now - lastUpdate) : null;
+
+            // Considera offline se passar de 15 segundos ou se o cache disser que não está online
+            const isOffline = diff === null || diff > 15 || !tel.online;
+
+            let battPct = tel.batterylevel || 0;
+            let watts = tel.watts || 0;
+            let peakW = tel.peakWatts || 0;
+            let current = tel.currentA || 0;
+            let peakC = tel.peakCurrent || 0;
+            let kwh = tel.accumulated_kwh || 0;
+            let bateriaEmUso = tel.bateriaEmUso || false;
+
+            let battColor = battPct > 60 ? 'var(--green)' : (battPct > 30 ? 'var(--yellow)' : 'var(--red)');
+            if (isOffline) battColor = 'var(--text-3)';
+
+            const battV = tel.batteryVoltage ? tel.batteryVoltage.toFixed(1) + ' V' : 'N/A';
+
+            let statusText = 'Offline';
+            let statusColor = 'var(--red)';
+            if (!isOffline) {
+                if (tel.outputVac === 0) {
+                    statusText = 'Desligado';
+                    statusColor = 'var(--text-3)';
+                } else if (tel.bateriaBaixa) {
+                    statusText = 'Bateria Baixa!';
+                    statusColor = 'var(--red)';
+                } else if (tel.bateriaEmUso) {
+                    statusText = 'Operando por Bateria';
+                    statusColor = 'var(--yellow)';
+                } else {
+                    statusText = 'Ligado na Rede (OK)';
+                    statusColor = 'var(--green)';
+                }
+            }
+
+            grid.innerHTML += `
+            <div class="energy-card" style="border-top: 3px solid ${battColor};">
+                <div class="energy-header">
+                    <div>
+                        <div class="energy-title">${dev.name}</div>
+                        <div class="energy-sub"><i class="fas fa-link"></i> ${dev.associatedNames ? dev.associatedNames.length : 0} Máquinas</div>
+                    </div>
+                    <div class="energy-icon-container" style="border: 2px solid ${battColor}; color: ${battColor};">
+                        <i class="fas fa-bolt ${tel.bateriaEmUso && !isOffline ? 'blink-warning' : ''}"></i>
+                        <span style="font-size: 0.7rem;">${battPct}%</span>
+                    </div>
+                </div>
+
+                <div class="status-indicator" style="color: ${statusColor}">
+                    <div class="status-dot" style="background: ${statusColor};"></div>
+                    ${statusText}
+                    ${tel.bateriaEmUso && !isOffline && !tel.bateriaBaixa ? '<span class="blink-warning" style="margin-left: 5px;">⚠ SEM ENERGIA</span>' : ''}
+                </div>
+
+                ${!isOffline ? `
+                <div class="energy-stats">
+                    <div>
+                        <div class="stat-label">Potência (W)</div>
+                        <div class="stat-value" style="color:var(--accent);">${watts.toFixed(1)} <span class="stat-unit">W</span></div>
+                        <div class="peak-indicator"><i class="fas fa-arrow-up"></i> Pico: ${peakW}W</div>
+                    </div>
+                    <div>
+                        <div class="stat-label">Corrente (A)</div>
+                        <div class="stat-value">${current.toFixed(2)} <span class="stat-unit">A</span></div>
+                        <div class="peak-indicator"><i class="fas fa-arrow-up"></i> Pico: ${peakC}A</div>
+                    </div>
+                    <div>
+                        <div class="stat-label">Tensão Bat.</div>
+                        <div class="stat-value">${battV}</div>
+                        ${tel.lastBatteryVoltage ? `<div class="peak-indicator" style="font-size:0.65rem;">Último: ${tel.lastBatteryVoltage.toFixed(1)}V (<span class="battery-last-seen" data-timestamp="${tel.lastBatteryTimestamp}">0s</span>)</div>` : ''}
+                    </div>
+                    <div>
+                        <div class="stat-label">Carga (Load)</div>
+                        <div class="stat-value" style="color:${tel.loadPct > 80 ? 'var(--red)' : (tel.loadPct > 50 ? 'var(--yellow)' : 'var(--green)')};">${(tel.loadPct || 0).toFixed(1)} <span class="stat-unit">%</span></div>
+                    </div>
+                    <div>
+                        <div class="stat-label">Temperatura</div>
+                        <div class="stat-value">${(tel.temperature || 0).toFixed(1)} <span class="stat-unit">°C</span></div>
+                    </div>
+                    <div>
+                        <div class="stat-label">Frequência</div>
+                        <div class="stat-value">${(tel.outputHz || 0).toFixed(1)} <span class="stat-unit">Hz</span></div>
+                    </div>
+                    <div>
+                        <div class="stat-label">Rede / Saída</div>
+                        <div class="stat-value" style="font-size:0.85rem;">${tel.inputVac || 0}V / ${tel.outputVac || 0}V</div>
+                        <div class="peak-indicator" style="font-size:0.65rem;"><i class="fas fa-arrow-down"></i> Min: ${tel.minInputVac || 0}V | <i class="fas fa-arrow-up"></i> Max: ${tel.maxInputVac || 0}V</div>
+                    </div>
+                    <div style="grid-column: 1 / -1; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 0.5rem; display:flex; justify-content:space-between; align-items:flex-end;">
+                        <div>
+                            <div class="stat-label">Consumo Acumulado</div>
+                            <div class="stat-value" style="font-size:1rem; font-family: monospace;">${kwh.toFixed(6)} <span class="stat-unit">kWh</span></div>
+                        </div>
+                        <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 0.65rem;" onclick="resetConsumption('${dev.id}')">RESET</button>
+                    </div>
+                </div>
+                ` : `
+                <div style="text-align: center; color: var(--text-3); padding: 1.5rem 0; background: rgba(0,0,0,0.1); border-radius: 8px;">
+                    <i class="fas fa-plug-circle-xmark" style="font-size: 1.5rem; margin-bottom: 0.5rem;"></i>
+                    <div>Dispositivo Offline</div>
+                    <div style="font-size: 0.7rem; margin-top: 4px;">As leituras foram ocultadas.</div>
+                </div>
+                
+                <div style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.02); margin-top: 1rem; display: flex; justify-content: space-between; align-items: flex-end;">
+                    <div>
+                        <div class="stat-label">Consumo Acumulado</div>
+                        <div class="stat-value" style="font-size:1rem; font-family: monospace;">${kwh.toFixed(6)} <span class="stat-unit">kWh</span></div>
+                    </div>
+                    <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 0.65rem;" onclick="resetConsumption('${dev.id}')">RESET</button>
+                </div>
+                `}
+
+                <div class="time-since-update" data-timestamp="${tel.timestamp || ''}" style="font-size: 0.7rem; color: var(--text-3); text-align: center; margin-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.02); padding-top: 0.5rem;">
+                    ${diff !== null ? `<i class="far fa-clock"></i> <span class="sec-counter">${diff}</span> segundos desde a última comunicação` : '<i class="far fa-clock"></i> Nunca comunicado'}
+                </div>
+
+                <div style="display:flex; justify-content:flex-end; gap:0.5rem; border-top:1px solid var(--border); padding-top:0.8rem; flex-wrap: wrap;">
+                    <button class="btn btn-secondary" style="padding:0.3rem 0.6rem; font-size:0.75rem;" onclick="openInfoModal('${dev.id}')"><i class="fas fa-info-circle"></i> Info</button>
+                    <button class="btn btn-secondary" style="padding:0.3rem 0.6rem; font-size:0.75rem;" onclick="openLogsModal('${dev.id}')"><i class="fas fa-history"></i> Logs</button>
+                    <button class="btn btn-secondary" style="padding:0.3rem 0.6rem; font-size:0.75rem;" onclick="openRawModal('${dev.id}')"><i class="fas fa-terminal"></i> Raw</button>
+                    ${!isOffline ? `<button class="btn btn-secondary" style="padding:0.3rem 0.6rem; font-size:0.75rem;" onclick="openControlDeviceModal('${dev.id}')"><i class="fas fa-gamepad"></i> Controle</button>` : ''}
+                    <button class="btn btn-secondary" style="padding:0.3rem 0.6rem; font-size:0.75rem;" onclick="openEditDeviceModal('${dev.id}')"><i class="fas fa-edit"></i></button>
+                </div>
+            </div>
+            `;
+        });
+    }
+
+    async function openLogsModal(id) {
+        currentLogsId = id;
+        const container = document.getElementById('logsContainer'); container.innerHTML = '...';
+        document.getElementById('logsModal').style.display = 'flex';
+        const resp = await fetch(`/api/energy_devices/${id}/logs`);
+        const logs = await resp.json();
+        container.innerHTML = logs.length ? logs.map(l => `<div class="log-item"><div style="color:var(--text-3);font-size:0.7rem;">${l.date} ${l.time}</div>${l.msg}</div>`).join('') : '<p>Sem eventos.</p>';
+    }
+
+    async function clearLogs() {
+        if (!currentLogsId) return;
+        if (confirm("Deseja apagar todos os logs deste dispositivo?")) {
+            await fetch(`/api/energy_devices/${currentLogsId}/logs`, { method: 'DELETE' });
+            openLogsModal(currentLogsId); // Recarrega
+        }
+    }
+
+    let currentInfoId = null;
+
+    function openInfoModal(id) {
+        currentInfoId = id;
+        const dev = energyDevices.find(d => String(d.id) === String(id));
+        
+        document.getElementById('protocolNobreak').style.display = dev.integration === 'nobreak' ? 'block' : 'none';
+        document.getElementById('protocolSensorLink').style.display = dev.integration === 'sensorlink' ? 'block' : 'none';
+        document.getElementById('protocolNut').style.display = dev.integration === 'nut' ? 'block' : 'none';
+        
+        document.getElementById('infoModal').style.display = 'flex';
+        switchInfoTab('protocol');
+    }
+
+    function switchInfoTab(tab) {
+        document.getElementById('tabContentInfoProtocol').style.display = tab === 'protocol' ? 'block' : 'none';
+        document.getElementById('tabContentInfoJson').style.display = tab === 'json' ? 'block' : 'none';
+
+        document.getElementById('tabBtnInfoProtocol').classList.toggle('active', tab === 'protocol');
+        document.getElementById('tabBtnInfoJson').classList.toggle('active', tab === 'json');
+        
+        if (tab === 'json') {
+            populateInfoJson();
+        }
+    }
+
+    function populateInfoJson() {
+        if (!currentInfoId) return;
+        const tel = deviceTelemetry[currentInfoId] || {};
+        const dev = energyDevices.find(d => String(d.id) === String(currentInfoId));
+
+        // Calcula o modo/status atual do dispositivo
+        let mode = 'offline';
+        if (tel.online) {
+            if ((tel.outputVac || 0) > 0) {
+                mode = tel.bateriaEmUso ? 'battery' : 'grid';
+            } else {
+                mode = 'off';
+            }
+        }
+
+        // Mapa amigável de marcas/modelos
+        const brandLabels = {
+            'sms_manager_iii': 'SMS Manager III Senoidal'
+        };
+
+        const dataBlock = {
+            mode: mode,
+            online: tel.online || false,
+            inputVac: tel.inputVac || 0,
+            outputVac: tel.outputVac || 0,
+            outputHz: tel.outputHz || 0,
+            loadPct: tel.loadPct || 0,
+            watts: tel.watts || 0,
+            peakWatts: tel.peakWatts || 0,
+            currentA: tel.currentA || 0,
+            peakCurrent: tel.peakCurrent || 0,
+            batterylevel: tel.batterylevel || 0,
+            bateriaEmUso: tel.bateriaEmUso || false,
+            bateriaBaixa: tel.bateriaBaixa || false,
+            accumulated_kwh: tel.accumulated_kwh || 0
+        };
+
+        // Só inclui tensão da bateria se tiver um valor real (vindo do hardware)
+        if (tel.lastBatteryVoltage && tel.lastBatteryVoltage > 0) {
+            dataBlock.batteryVoltage = tel.lastBatteryVoltage;
+        }
+
+        // Monta lista de dispositivos associados com platform_token
+        const associatedIds = dev ? (dev.associatedIds || []) : [];
+        const associatedDevices = associatedIds.map(id => {
+            const machine = availableMachines.find(m => String(m.id) === String(id));
+            return machine ? {
+                name: machine.name,
+                platform_token: machine.platform_token || null
+            } : null;
+        }).filter(Boolean);
+
+        // Monta o bloco de integração dinamicamente para não enviar lixo
+        const integrationBlock = {
+            type: dev ? dev.integration : '',
+            polling_interval_s: dev ? (dev.polling_interval || 3) : 3
+        };
+
+        if (dev && dev.integration === 'nobreak') {
+            integrationBlock.brand = brandLabels[dev.brand] || dev.brand || '';
+            integrationBlock.nominal_va = dev.nominal_va || 1800;
+            integrationBlock.power_factor = dev.power_factor || 0.7;
+            integrationBlock.port = dev.port || '';
+        } else if (dev && dev.integration === 'nut') {
+            integrationBlock.nut_host = dev.nut_host || '';
+            integrationBlock.nut_port = dev.nut_port || 3493;
+            integrationBlock.nut_ups_name = dev.nut_ups_name || 'ups';
+        } else if (dev && dev.integration === 'sensorlink') {
+            integrationBlock.sensorlink_host = dev.sensorlink_host || '';
+        }
+
+        const payload = {
+            platform_token: (dev && dev.code) ? dev.code : currentInfoId,
+            name: dev ? dev.name : 'Unknown',
+            integration: integrationBlock,
+            associated_devices: associatedDevices,
+            timestamp: tel.timestamp || Math.floor(Date.now() / 1000),
+            data: dataBlock
+        };
+
+        document.getElementById('infoJsonContainer').innerText = JSON.stringify(payload, null, 4);
+    }
+
+    function copyInfoJson(btn) {
+        const el = document.getElementById('infoJsonContainer');
+        const text = el.innerText;
+        navigator.clipboard.writeText(text).then(() => {
+            const originalText = btn.innerHTML;
+            btn.innerHTML = `<i class="fas fa-check"></i> Copiado!`;
+            setTimeout(() => { btn.innerHTML = originalText; }, 1000);
+        }).catch(err => {
+            const originalText = btn.innerHTML;
+            btn.innerHTML = `<i class="fas fa-times"></i> Erro!`;
+            setTimeout(() => { btn.innerHTML = originalText; }, 2000);
+        });
+    }
+
+    function openRawModal(id) {
+        currentRawId = id;
+        const el = document.getElementById('rawContainer');
+        el.innerHTML = "Aguardando dados..."; // Reseta o console ao abrir
+        lastRawData[id] = null; // Força a exibição do dado atual
+        document.getElementById('rawModal').style.display = 'flex';
+    }
+
+    function copyRawData(btn) {
+        const el = document.getElementById('rawContainer');
+        const text = el.innerText;
+        navigator.clipboard.writeText(text).then(() => {
+            const originalText = btn.innerHTML;
+            btn.innerHTML = `<i class="fas fa-check"></i> Copiado!`;
+            setTimeout(() => { btn.innerHTML = originalText; }, 1000);
+        }).catch(err => {
+            const originalText = btn.innerHTML;
+            btn.innerHTML = `<i class="fas fa-times"></i> Erro!`;
+            setTimeout(() => { btn.innerHTML = originalText; }, 2000);
+        });
+    }
+
+    function closeRawModal() {
+        currentRawId = null;
+        document.getElementById('rawModal').style.display = 'none';
+    }
+
+    async function sendCommand(cmd, btn) {
+        if (!controllingId) return;
+        const originalText = btn.innerHTML;
+        btn.innerHTML = `<i class="fas fa-spinner fa-spin" style="width: 25px;"></i> Enviando...`;
+        const resp = await fetch(`/api/energy_devices/${controllingId}/command`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cmd }) });
+        const result = await resp.json();
+        if (result.success) {
+            btn.innerHTML = `<i class="fas fa-check" style="width: 25px; color: var(--green);"></i> Sucesso!`;
+            setTimeout(() => {
+                btn.innerHTML = originalText;
+                closeControlDeviceModal();
+            }, 1000);
+        } else {
+            btn.innerHTML = `<i class="fas fa-times" style="width: 25px; color: var(--red);"></i> Erro!`;
+            setTimeout(() => { btn.innerHTML = originalText; }, 2000);
+        }
+    }
+
+    function switchTab(tab) {
+        document.getElementById('tabContentConfig').style.display = tab === 'config' ? 'block' : 'none';
+        document.getElementById('tabContentAssoc').style.display = tab === 'assoc' ? 'block' : 'none';
+
+        document.getElementById('tabBtnConfig').classList.toggle('active', tab === 'config');
+        document.getElementById('tabBtnAssoc').classList.toggle('active', tab === 'assoc');
+    }
+
+    async function resetConsumption(id) { if (confirm("Zerar kWh e Picos?")) { await fetch(`/api/energy_devices/${id}/reset`, { method: 'POST' }); pollTelemetry(); } }
+    function openAddDeviceModal() { 
+        editingId = null; 
+        document.getElementById('btnDeleteDevice').style.display = 'none';
+        switchTab('config'); 
+        document.getElementById('devName').value = '';
+        document.getElementById('devCode').value = '';
+        document.getElementById('devIntegration').value = '';
+        document.getElementById('devBrand').value = 'sms_manager_iii';
+        document.getElementById('devPort').value = 'auto';
+        document.getElementById('devNominalVA').value = '1800';
+        document.getElementById('devFP').value = '0.7';
+        document.getElementById('devInterval').value = '3';
+        document.getElementById('addDeviceModal').style.display = 'flex'; 
+        loadSystemPorts(); 
+        populateMachineCheckboxes(); 
+        toggleIntegrationFields();
+        toggleBrandLink(); 
+    }
+    function closeAddDeviceModal() { document.getElementById('addDeviceModal').style.display = 'none'; }
+    function openControlDeviceModal(id) { 
+        controllingId = id; 
+        const dev = energyDevices.find(d => String(d.id) === String(id));
+        
+        document.getElementById('nobreakControlBlock').style.display = 'none';
+        document.getElementById('tasmotaControlBlock').style.display = 'none';
+        
+        if (dev.integration === 'nobreak') {
+            document.getElementById('nobreakControlBlock').style.display = 'flex';
+            document.getElementById('controlModalTitle').innerHTML = '<i class="fas fa-gamepad"></i> Controle do Nobreak';
+        } else if (dev.integration === 'tasmota') {
+            document.getElementById('tasmotaControlBlock').style.display = 'flex';
+            document.getElementById('controlModalTitle').innerHTML = '<i class="fas fa-gamepad"></i> Controle do Tasmota';
+        }
+        
+        document.getElementById('controlDeviceModal').style.display = 'flex'; 
+    }
+    function closeControlDeviceModal() { document.getElementById('controlDeviceModal').style.display = 'none'; }
+    function toggleIntegrationFields() {
+        const v = document.getElementById('devIntegration').value;
+        document.getElementById('nobreakFields').style.display = v === 'nobreak' ? 'block' : 'none';
+        document.getElementById('nutFields').style.display = v === 'nut' ? 'block' : 'none';
+        document.getElementById('sensorlinkFields').style.display = v === 'sensorlink' ? 'block' : 'none';
+        document.getElementById('tasmotaFields').style.display = v === 'tasmota' ? 'block' : 'none';
+        
+        document.getElementById('docLinkNut').style.display = v === 'nut' ? 'inline' : 'none';
+        document.getElementById('docLinkSensorLink').style.display = v === 'sensorlink' ? 'inline' : 'none';
+        document.getElementById('docLinkTasmota').style.display = v === 'tasmota' ? 'inline' : 'none';
+    }
+    function toggleBrandLink() { document.getElementById('brandLink').style.display = document.getElementById('devBrand').value === 'sms_manager_iii' ? 'inline' : 'none'; }
+    async function loadSystemPorts() { const resp = await fetch('/api/system/ports'); const data = await resp.json(); const sel = document.getElementById('devPort'); sel.innerHTML = '<option value="auto">Auto</option>'; if (data.success) data.ports.forEach(p => sel.innerHTML += `<option value="${p}">${p}</option>`); }
+    function populateMachineCheckboxes(ids = []) { const container = document.getElementById('machineCheckboxes'); container.innerHTML = availableMachines.map(m => `<label style="display:flex; align-items:center; gap:10px; font-size:0.8rem; cursor:pointer;"><input type="checkbox" class="machine-assoc-cb" style="width:16px; height:16px; margin:0;" value="${m.id}" data-name="${m.name}" ${ids.includes(String(m.id)) ? 'checked' : ''}> ${m.name}</label>`).join(''); }
+    async function saveDevice() {
+        const intType = document.getElementById('devIntegration').value;
+        const payload = {
+            name: document.getElementById('devName').value,
+            code: document.getElementById('devCode').value,
+            integration: intType,
+            associatedIds: Array.from(document.querySelectorAll('.machine-assoc-cb:checked')).map(cb => cb.value),
+            associatedNames: Array.from(document.querySelectorAll('.machine-assoc-cb:checked')).map(cb => cb.dataset.name),
+        };
+        if (intType === 'nobreak') {
+            payload.brand = document.getElementById('devBrand').value;
+            payload.port = document.getElementById('devPort').value;
+            payload.nominal_va = parseFloat(document.getElementById('devNominalVA').value) || 1800;
+            payload.power_factor = parseFloat(document.getElementById('devFP').value) || 0.7;
+            payload.polling_interval = parseFloat(document.getElementById('devInterval').value) || 3;
+        } else if (intType === 'nut') {
+            payload.nut_host = document.getElementById('nutHost').value;
+            payload.nut_port = parseInt(document.getElementById('nutPort').value) || 3493;
+            payload.nut_ups_name = document.getElementById('nutUpsName').value || 'ups';
+            payload.nut_user = document.getElementById('nutUser').value;
+            payload.nut_password = document.getElementById('nutPassword').value;
+            payload.polling_interval = parseFloat(document.getElementById('nutInterval').value) || 5;
+        } else if (intType === 'sensorlink') {
+            payload.sensorlink_host = document.getElementById('sensorlinkHost').value;
+            payload.polling_interval = parseFloat(document.getElementById('sensorlinkInterval').value) || 5;
+        } else if (intType === 'tasmota') {
+            payload.tasmota_host = document.getElementById('tasmotaHost').value;
+            payload.polling_interval = parseFloat(document.getElementById('tasmotaInterval').value) || 5;
+        }
+        await fetch(editingId ? `/api/energy_devices/${editingId}` : '/api/energy_devices', { method: editingId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        closeAddDeviceModal(); fetchDevices();
+    }
+    
+    let deviceToDelete = null;
+
+    function confirmDeleteDevice() {
+        deviceToDelete = editingId;
+        document.getElementById('deleteConfirmModal').style.display = 'flex';
+    }
+
+    function closeDeleteModal() {
+        document.getElementById('deleteConfirmModal').style.display = 'none';
+        deviceToDelete = null;
+    }
+
+    async function executeDeleteDevice() {
+        if (!deviceToDelete) return;
+        await fetch(`/api/energy_devices/${deviceToDelete}`, { method: 'DELETE' });
+        closeDeleteModal();
+        closeAddDeviceModal();
+        await fetchDevices();
+        renderDevices();
+    }
+    
+    function openEditDeviceModal(id) {
+        editingId = id;
+        document.getElementById('btnDeleteDevice').style.display = 'inline-flex';
+        const dev = energyDevices.find(d => String(d.id) === String(id));
+        document.getElementById('devName').value = dev.name;
+        document.getElementById('devCode').value = dev.code || '';
+        document.getElementById('devIntegration').value = dev.integration;
+        toggleIntegrationFields();
+        switchTab('config');
+        if (dev.integration === 'nobreak') {
+            loadSystemPorts().then(() => {
+                document.getElementById('devPort').value = dev.port || 'auto';
+                document.getElementById('devBrand').value = dev.brand || 'sms_manager_iii';
+                document.getElementById('devNominalVA').value = dev.nominal_va || 1800;
+                document.getElementById('devFP').value = dev.power_factor || 0.7;
+                document.getElementById('devInterval').value = dev.polling_interval || 3;
+                toggleBrandLink();
+            });
+        } else if (dev.integration === 'nut') {
+            document.getElementById('nutHost').value = dev.nut_host || '';
+            document.getElementById('nutPort').value = dev.nut_port || 3493;
+            document.getElementById('nutUpsName').value = dev.nut_ups_name || 'ups';
+            document.getElementById('nutUser').value = dev.nut_user || '';
+            document.getElementById('nutPassword').value = dev.nut_password || '';
+            document.getElementById('nutInterval').value = dev.polling_interval || 5;
+        } else if (dev.integration === 'sensorlink') {
+            document.getElementById('sensorlinkHost').value = dev.sensorlink_host || '';
+            document.getElementById('sensorlinkInterval').value = dev.polling_interval || 5;
+        } else if (dev.integration === 'tasmota') {
+            document.getElementById('tasmotaHost').value = dev.tasmota_host || '';
+            document.getElementById('tasmotaInterval').value = dev.polling_interval || 5;
+        }
+        populateMachineCheckboxes(dev.associatedIds || []);
+        document.getElementById('addDeviceModal').style.display = 'flex';
+    }
+</script>
+{% endblock %}

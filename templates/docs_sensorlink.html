@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Protocolo SensorLink - Documentação</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --bg: #0f172a;
+            --card-bg: #1e293b;
+            --accent: #38bdf8;
+            --text: #f1f5f9;
+            --text-muted: #94a3b8;
+            --border: #334155;
+            --success: #10b981;
+        }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 20px;
+        }
+        h1 {
+            color: var(--accent);
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+        h2 {
+            color: var(--accent);
+            font-size: 1.8rem;
+            margin-top: 30px;
+            border-left: 4px solid var(--accent);
+            padding-left: 10px;
+        }
+        h3 {
+            color: var(--text);
+            font-size: 1.3rem;
+            margin-top: 20px;
+        }
+        code {
+            background-color: rgba(0, 0, 0, 0.3);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.9em;
+            color: #f43f5e;
+        }
+        pre {
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            border: 1px solid var(--border);
+        }
+        pre code {
+            background-color: transparent;
+            padding: 0;
+            color: #e2e8f0;
+        }
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin-right: 10px;
+        }
+        .badge-get { background-color: #0ea5e9; color: white; }
+        .badge-post { background-color: #10b981; color: white; }
+        
+        .endpoint {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-family: monospace;
+            font-size: 1.1rem;
+            background: rgba(0,0,0,0.2);
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        th {
+            color: var(--accent);
+            font-weight: 600;
+        }
+        
+        .back-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 600;
+            margin-bottom: 20px;
+            transition: opacity 0.2s;
+        }
+        .back-btn:hover {
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/energy" class="back-btn"><i class="fas fa-arrow-left"></i> Voltar para Energia</a>
+        
+        <div class="header">
+            <h1><i class="fas fa-plug"></i> Protocolo SensorLink</h1>
+            <p style="color: var(--text-muted)">Documentação oficial para integração de dispositivos IoT personalizados.</p>
+        </div>
+
+        <div class="card">
+            <h2>Visão Geral</h2>
+            <p>O <strong>SensorLink</strong> é um protocolo aberto e simplificado para integração de dispositivos IoT personalizados (como ESP32, Arduino com Ethernet, Raspberry Pi, etc.) ao Hub.</p>
+            <p>Ele funciona no modelo <strong>Poll-based</strong>, onde o Hub é o cliente e o dispositivo IoT é o servidor. O Hub faz requisições HTTP para o IP do dispositivo para ler sensores e enviar comandos.</p>
+        </div>
+
+        <div class="card">
+            <h2>Endpoints que o Dispositivo deve Implementar</h2>
+
+            <h3>📊 Leitura de Estado</h3>
+            <div class="endpoint">
+                <span class="badge badge-get">GET</span> <span>/status</span>
+            </div>
+            <p>Retorna o estado atual do dispositivo, incluindo telemetria e estados de saídas/entradas.</p>
+            
+            <p><strong>Resposta Esperada (JSON):</strong></p>
+            <pre><code>{
+    "device": {
+        "name": "ESP32 SensorLink",
+        "firmware": "1.0.0",
+        "uptime_s": 3600
+    },
+    "telemetry": {
+        "inputVac": 127.5,
+        "outputVac": 127.1,
+        "watts": 250.5,
+        "currentA": 1.97,
+        "temperature": 32.5,
+        "humidity": 45.0,
+        "accumulated_kwh": 12.345
+    },
+    "outputs": [
+        {
+            "id": "rele_1",
+            "name": "Impressora H2D",
+            "status": true
+        }
+    ],
+    "inputs": [
+        {
+            "id": "sensor_porta",
+            "name": "Porta do Gabinete",
+            "status": 1,
+            "type": "digital"
+        }
+    ]
+}</code></pre>
+            <p><small style="color:var(--text-muted)">* Nota: Você pode omitir campos que seu dispositivo não possui. O Hub se adapta aos campos presentes.</small></p>
+
+            <h3>🕹️ Controle e Atuação</h3>
+            <div class="endpoint">
+                <span class="badge badge-post">POST</span> <span>/control</span>
+            </div>
+            <p>Recebe comandos de atuação (ligar/desligar saídas, etc.).</p>
+            
+            <p><strong>Payload Enviado pelo Hub (JSON):</strong></p>
+            <pre><code>{
+    "action": "turn_on",
+    "target": "rele_1"
+}</code></pre>
+            
+            <p><strong>Ações Suportadas:</strong></p>
+            <ul>
+                <li><code>turn_on</code>: Liga o alvo (target).</li>
+                <li><code>turn_off</code>: Desliga o alvo (target).</li>
+                <li><code>reset_consumption</code>: Zera o consumo acumulado (se aplicável).</li>
+            </ul>
+
+            <p><strong>Resposta Esperada (JSON):</strong></p>
+            <pre><code>{
+    "success": true,
+    "message": "Ação executada com sucesso"
+}</code></pre>
+        </div>
+
+        <div class="card">
+            <h2>Exemplo de Código para ESP32 (Arduino IDE)</h2>
+            <p>Aqui está um exemplo básico de como implementar o SensorLink em um ESP32 usando a biblioteca <code>WebServer</code> e <code>ArduinoJson</code>.</p>
+            
+            <pre><code>#include &lt;WiFi.h&gt;
+#include &lt;WebServer.h&gt;
+#include &lt;ArduinoJson.h&gt;
+
+const char* ssid = "SUA_REDE_WIFI";
+const char* password = "SUA_SENHA_WIFI";
+
+WebServer server(80);
+
+const int RELE_1 = 12;
+const int SENSOR_PORTA = 13;
+float accumulated_kwh = 0.0;
+
+void handleStatus() {
+  StaticJsonDocument&lt;1024&gt; doc;
+  
+  JsonObject device = doc.createNestedObject("device");
+  device["name"] = "ESP32 SensorLink";
+  device["uptime_s"] = millis() / 1000;
+  
+  JsonObject telemetry = doc.createNestedObject("telemetry");
+  telemetry["inputVac"] = 127.0;
+  telemetry["watts"] = 150.0;
+  telemetry["accumulated_kwh"] = accumulated_kwh;
+  
+  JsonArray outputs = doc.createNestedArray("outputs");
+  JsonObject out1 = outputs.createNestedObject();
+  out1["id"] = "rele_1";
+  out1["name"] = "Impressora H2D";
+  out1["status"] = digitalRead(RELE_1) == HIGH;
+  
+  String response;
+  serializeJson(doc, response);
+  server.send(200, "application/json", response);
+}
+
+void handleControl() {
+  if (server.hasArg("plain")) {
+    String body = server.arg("plain");
+    StaticJsonDocument&lt;200&gt; doc;
+    deserializeJson(doc, body);
+    
+    String action = doc["action"];
+    String target = doc["target"];
+    
+    if (target == "rele_1") {
+      if (action == "turn_on") digitalWrite(RELE_1, HIGH);
+      else if (action == "turn_off") digitalWrite(RELE_1, LOW);
+    }
+    
+    server.send(200, "application/json", "{\"success\":true}");
+  } else {
+    server.send(400, "application/json", "{\"success\":false}");
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(RELE_1, OUTPUT);
+  pinMode(SENSOR_PORTA, INPUT_PULLUP);
+  
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
+  
+  server.on("/status", HTTP_GET, handleStatus);
+  server.on("/control", HTTP_POST, handleControl);
+  server.begin();
+}
+
+void loop() {
+  server.handleClient();
+  accumulated_kwh += 0.0001;
+  delay(1);
+}</code></pre>
+        </div>
+    </div>
+</body>
+</html>
