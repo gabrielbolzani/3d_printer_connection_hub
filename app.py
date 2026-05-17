@@ -970,10 +970,11 @@ def raw_status(printer_id):
 @app.route('/api/bambu/files/<printer_id>', methods=['GET'])
 def get_bambu_files(printer_id):
     category = request.args.get('category', 'files')
+    subpath = request.args.get('path', None)
     with PRINTERS_LOCK:
         printer = next((p for p in PRINTERS if str(p.config['id']) == str(printer_id)), None)
     if printer and hasattr(printer, 'list_bambu_files'):
-        files = printer.list_bambu_files(category)
+        files = printer.list_bambu_files(category=category, path=subpath)
         return jsonify({'success': True, 'files': files})
     return jsonify({'success': False, 'error': 'Printer not found or not a Bambu printer'}), 404
 
@@ -1457,7 +1458,8 @@ def aditivaflow_sync_loop():
             
         headers = {
             'x-device-token': token,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3c3Fmam5nZWljeXJjZG93ZGJpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI1NjIzMDksImV4cCI6MjA3ODEzODMwOX0.CM5OO5AoLcVWShMBcpk8oJaYzNU06jHjbH-Oj3X-uAg'
         }
         
         refresh_cloud_metadata(token)
@@ -1722,35 +1724,49 @@ def aditivaflow_sync_loop():
                     
                     tel = tel_data.get('telemetry', {})
                     
+                    data_obj = tel.copy()
+                    
+                    # Garantir campos numéricos padrão
+                    for k in ['inputVac', 'outputVac', 'watts', 'currentA', 'temperature', 'humidity', 'accumulated_kwh']:
+                        data_obj[k] = tel.get(k, 0)
+                        
+                    # Preencher associated_devices
+                    assoc_list = []
+                    associated_ids = dev.get('associatedIds', [])
+                    associated_names = dev.get('associatedNames', [])
+                    
+                    if associated_ids:
+                        with PRINTERS_LOCK:
+                            for idx, pid in enumerate(associated_ids):
+                                pr = next((p for p in PRINTERS if str(p.config['id']) == str(pid)), None)
+                                if pr and pr.config.get('platform_token'):
+                                    assoc_list.append({
+                                        "platform_token": pr.config.get('platform_token'),
+                                        "name": pr.name if hasattr(pr, 'name') else pr.config.get('name', 'Printer')
+                                    })
+                                    
                     payload = {
-                        "sync_code": sync_code,
-                        "state": "online" if tel.get('online') else "offline",
-                        "inputVac": tel.get('inputVac', 0),
-                        "outputVac": tel.get('outputVac', 0),
-                        "watts": tel.get('watts', 0),
-                        "currentA": tel.get('currentA', 0),
-                        "temperature": tel.get('temperature', 0),
-                        "humidity": tel.get('humidity', 0),
-                        "accumulated_kwh": tel.get('accumulated_kwh', 0),
-                        "integration": dev.get('integration'),
-                        "timestamp": tel.get('timestamp', time.time())
+                        "platform_token": sync_code,
+                        "name": dev.get('name', 'Energy Device'),
+                        "integration": {
+                            "type": dev.get('integration', 'unknown'),
+                            "brand": dev.get('brand', ''),
+                            "port": dev.get('port', ''),
+                            "polling_interval_s": dev.get('polling_interval', 1)
+                        },
+                        "associated_devices": assoc_list,
+                        "data": data_obj
                     }
                     
-                    if 'outputs' in tel:
-                        payload['outputs'] = tel['outputs']
-                    if 'inputs' in tel:
-                        payload['inputs'] = tel['inputs']
-                        
-                    log_cloud(f"Sincronizando Dispositivo Energia {dev['name']}: {payload['state']}")
+                    log_cloud(f"Sincronizando Dispositivo Energia {dev['name']}")
                     
+                    sync_resp = None
                     try:
-                        sync_resp = session.patch(f"{base_url}/hub/sync", headers=headers, json=payload, timeout=5)
-                        if sync_resp.status_code in [404, 405]:
-                            sync_resp = session.post(f"{base_url}/hub/sync", headers=headers, json=payload, timeout=5)
-                    except:
-                        sync_resp = session.post(f"{base_url}/hub/sync", headers=headers, json=payload, timeout=5)
+                        sync_resp = session.post(f"{base_url}/energy/sync", headers=headers, json=payload, timeout=5)
+                    except Exception as e:
+                        log_warn(f"Erro Cloud Energia ({dev['name']}) falha de rede: {e}")
                         
-                    if sync_resp.status_code != 200:
+                    if sync_resp and sync_resp.status_code != 200:
                         log_warn(f"Erro Cloud Energia ({dev['name']}): Status {sync_resp.status_code} - {sync_resp.text[:120]}")
                         
                 except Exception as e:

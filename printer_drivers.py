@@ -1744,18 +1744,20 @@ class BambuPrinter(BasePrinter):
             # Aguardar antes de tentar novamente
             time.sleep(5)
 
-    def list_bambu_files(self, category='files'):
+    def list_bambu_files(self, category='files', path=None):
         """
         Lista arquivos do cartão SD via FTP.
         category: 'files' (mapeia para fatiamentos) ou 'timelapse' (mapeia para vídeos)
         """
         # Pastas conhecidas dependendo da versão do firmware e modelo (A1/P1/X1)
-        if category == 'files':
+        if path:
+            paths_to_check = [path]
+        elif category == 'files':
             paths_to_check = ["/model", "/", "/cache", "/data/Metadata"]
         else:
             paths_to_check = ["/timelapse", "/timelapse/video", "/record", "/recording"]
             
-        log_info(f"[{self.ip}] FTP: Listando arquivos da categoria {category}")
+        log_info(f"[{self.ip}] FTP: Listando arquivos da categoria {category}{' (path: ' + path + ')' if path else ''}")
         
         all_files = []
         try:

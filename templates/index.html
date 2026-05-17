@@ -2238,20 +2238,39 @@ CONTROLS
        BAMBU FILES
     ══════════════════════════════════════ */
     let currentBambuCategory = 'files';
+    let currentBambuPath = null;
 
     function openBambuFilesModal(id, name) {
         document.getElementById('bambuFilesPrinterId').value = id;
         document.getElementById('bambuFilesPrinterName').innerText = name;
         document.getElementById('bambuFilesModal').style.display = 'flex';
         currentBambuCategory = 'files';
+        currentBambuPath = null;
         switchBambuFiles('files');
     }
 
     function closeBambuFilesModal() {
         document.getElementById('bambuFilesModal').style.display = 'none';
+        currentBambuPath = null;
     }
 
-    async function switchBambuFiles(cat) {
+    function goBambuFolderUp() {
+        if (!currentBambuPath) return;
+        const parts = currentBambuPath.split('/').filter(p => p);
+        parts.pop();
+        if (parts.length === 0) {
+            switchBambuFiles(currentBambuCategory, null);
+        } else {
+            switchBambuFiles(currentBambuCategory, '/' + parts.join('/'));
+        }
+    }
+
+    async function switchBambuFiles(cat, targetPath = null) {
+        if (currentBambuCategory !== cat) {
+            currentBambuPath = null;
+        } else {
+            currentBambuPath = targetPath;
+        }
         currentBambuCategory = cat;
         document.querySelectorAll('.btab').forEach(b => b.classList.remove('active'));
         document.getElementById(`btab-${cat}`).classList.add('active');
@@ -2264,27 +2283,48 @@ CONTROLS
 
         const id = document.getElementById('bambuFilesPrinterId').value;
         try {
-            const res = await fetch(`/api/bambu/files/${id}?category=${cat}`);
+            let url = `/api/bambu/files/${id}?category=${cat}`;
+            if (currentBambuPath) {
+                url += `&path=${encodeURIComponent(currentBambuPath)}`;
+            }
+            const res = await fetch(url);
             const data = await res.json();
 
-            if (data.success && data.files.length > 0) {
-                list.innerHTML = data.files.map(f => {
-                    const isModel = f.name.toLowerCase().endsWith('.3mf') || f.name.toLowerCase().endsWith('.gcode');
-                    const isVideo = f.name.toLowerCase().endsWith('.mp4') || f.name.toLowerCase().endsWith('.avi');
-                    let icon = 'fa-file';
-                    if (isModel) icon = 'fa-cube';
-                    if (isVideo) icon = 'fa-video';
-                    if (f.is_dir) icon = 'fa-folder';
-
-                    const size = (f.size / (1024 * 1024)).toFixed(2) + ' MB';
-
-                    return `
-                        <div class="bambu-file-item">
-                            <div class="bfi-icon"><i class="fas ${icon}"></i></div>
+            if (data.success) {
+                let html = '';
+                if (currentBambuPath) {
+                    html += `
+                        <div class="bambu-file-item" style="cursor:pointer;" onclick="goBambuFolderUp()">
+                            <div class="bfi-icon"><i class="fas fa-level-up-alt"></i></div>
                             <div class="bfi-info">
-                                <div class="bfi-name">${f.name}</div>
-                                <div class="bfi-meta">${f.is_dir ? 'Pasta' : size}</div>
+                                <div class="bfi-name" style="font-weight:bold;">.. (Voltar)</div>
+                                <div class="bfi-meta">Pasta Superior</div>
                             </div>
+                            <div class="bfi-actions"></div>
+                        </div>
+                    `;
+                }
+
+                if (data.files && data.files.length > 0) {
+                    html += data.files.map(f => {
+                        const isModel = f.name.toLowerCase().endsWith('.3mf') || f.name.toLowerCase().endsWith('.gcode');
+                        const isVideo = f.name.toLowerCase().endsWith('.mp4') || f.name.toLowerCase().endsWith('.avi');
+                        let icon = 'fa-file';
+                        if (isModel) icon = 'fa-cube';
+                        if (isVideo) icon = 'fa-video';
+                        if (f.is_dir) icon = 'fa-folder';
+
+                        const size = (f.size / (1024 * 1024)).toFixed(2) + ' MB';
+                        
+                        const clickHandler = f.is_dir ? `style="cursor:pointer;" onclick="switchBambuFiles('${cat}', '${f.path.replace(/'/g, "\\'")}')"` : '';
+
+                        return `
+                            <div class="bambu-file-item">
+                                <div class="bfi-icon" ${clickHandler}><i class="fas ${icon}"></i></div>
+                                <div class="bfi-info" ${clickHandler}>
+                                    <div class="bfi-name">${f.name}</div>
+                                    <div class="bfi-meta">${f.is_dir ? 'Pasta' : size}</div>
+                                </div>
                             <div class="bfi-actions">
                                 ${!f.is_dir ? `
                                     <button class="bfi-btn" title="Download" onclick="window.open('/api/bambu/download_file?id=${id}&path=${encodeURIComponent(f.path)}&action=download', '_blank')">
@@ -2298,17 +2338,29 @@ CONTROLS
                                     <button class="bfi-btn del" title="Excluir" onclick="deleteBambuFile('${id}', '${f.path.replace(/'/g, "\\'")}')">
                                         <i class="fas fa-trash"></i>
                                     </button>
-                                ` : ''}
+                                ` : `
+                                    <button class="bfi-btn del" title="Excluir Pasta" onclick="deleteBambuFile('${id}', '${f.path.replace(/'/g, "\\'")}')">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                `}
                             </div>
                         </div>
                     `;
                 }).join('');
+                list.innerHTML = html;
             } else {
-                list.innerHTML = `<div style="text-align:center; padding:3rem; color:var(--text-3);">
+                html += `<div style="text-align:center; padding:3rem; color:var(--text-3);">
                     <i class="fas fa-ghost" style="font-size:2rem; margin-bottom:1rem;"></i>
-                    <p>Nenhum arquivo encontrado em /${cat === 'files' ? 'model' : 'timelapse'}</p>
+                    <p>Nenhum arquivo encontrado.</p>
                 </div>`;
+                list.innerHTML = html;
             }
+        } else {
+            list.innerHTML = `<div style="text-align:center; padding:3rem; color:var(--red);">
+                <i class="fas fa-exclamation-triangle" style="font-size:2rem; margin-bottom:1rem;"></i>
+                <p>Falha na requisição.</p>
+            </div>`;
+        }
         } catch (e) {
             list.innerHTML = `<div style="text-align:center; padding:2rem; color:var(--red);">
                 <i class="fas fa-exclamation-triangle" style="font-size:2rem; margin-bottom:1rem;"></i>
