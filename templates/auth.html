@@ -135,6 +135,38 @@
         .settings-grid { grid-template-columns: 1fr; }
         .settings-card.full-width { grid-column: 1; }
     }
+
+    /* Sync settings */
+    .sync-mode-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.75rem;
+        padding: 0.85rem;
+        background: var(--surface-2);
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        cursor: pointer;
+        transition: border-color 0.2s;
+        margin-bottom: 0.75rem;
+    }
+    .sync-mode-row:hover { border-color: var(--accent); }
+    .sync-mode-row input[type="radio"] { margin-top: 2px; accent-color: var(--accent); }
+    .sync-mode-row.active { border-color: var(--accent); background: var(--accent-dim); }
+    .sync-mode-label strong { display: block; font-size: 0.88rem; margin-bottom: 0.15rem; }
+    .sync-mode-label span { font-size: 0.75rem; color: var(--text-2); line-height: 1.4; }
+    .sync-interval-row {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-top: 0.25rem;
+    }
+    .sync-interval-row input[type="number"] {
+        width: 90px;
+        text-align: center;
+        padding: 0.5rem;
+    }
+    .sync-interval-row label { font-size: 0.82rem; color: var(--text-2); }
+    .sync-interval-row.disabled { opacity: 0.4; pointer-events: none; }
 </style>
 {% endblock %}
 
@@ -242,6 +274,46 @@
         <div class="actions" style="margin-top:0.9rem;">
             <button class="btn btn-danger" id="restoreBtn" onclick="restoreBackup()" disabled style="width:100%;">
                 <i class="fas fa-undo"></i> Restaurar
+            </button>
+        </div>
+    </div>
+
+    <!-- ===== FREQUÊNCIA DE TRANSMISSÃO ===== -->
+    <div class="settings-card full-width" id="syncSettingsCard">
+        <div class="card-header">
+            <div class="card-header-icon icon-purple"><i class="fas fa-satellite-dish"></i></div>
+            <div>
+                <h3>Frequência de Transmissão</h3>
+                <p>Define com qual frequência os dados são enviados para a plataforma remota</p>
+            </div>
+        </div>
+
+        <!-- Modo: Intervalo Fixo -->
+        <label class="sync-mode-row" id="modeFixedRow" onclick="selectSyncMode('fixed')">
+            <input type="radio" name="syncMode" id="modeFixed" value="fixed">
+            <div class="sync-mode-label">
+                <strong><i class="fas fa-clock" style="color:var(--accent);margin-right:4px;"></i> Intervalo fixo</strong>
+                <span>Todos os dispositivos de energia e impressoras são transmitidos juntos a cada X segundos.</span>
+                <div class="sync-interval-row" id="fixedIntervalRow" style="margin-top:0.6rem;">
+                    <label for="syncIntervalInput">Intervalo:</label>
+                    <input type="number" id="syncIntervalInput" min="1" max="300" value="5">
+                    <span style="font-size:0.82rem;color:var(--text-2);">segundos</span>
+                </div>
+            </div>
+        </label>
+
+        <!-- Modo: Na Frequência dos Dispositivos -->
+        <label class="sync-mode-row" id="modeDeviceRow" onclick="selectSyncMode('device')">
+            <input type="radio" name="syncMode" id="modeDevice" value="device">
+            <div class="sync-mode-label">
+                <strong><i class="fas fa-bolt" style="color:var(--yellow);margin-right:4px;"></i> Na frequência dos dispositivos</strong>
+                <span>Cada dispositivo de energia é transmitido imediatamente após ser lido, respeitando o <strong>Polling Interval</strong> individual configurado em cada dispositivo (ex: 1 s, 2 s). As impressoras continuam no intervalo fixo acima.</span>
+            </div>
+        </label>
+
+        <div class="actions" style="justify-content:flex-end;margin-top:0.5rem;">
+            <button class="btn btn-primary" id="saveSyncBtn" onclick="saveSyncSettings()">
+                <i class="fas fa-save"></i> Salvar Configuração
             </button>
         </div>
     </div>
@@ -434,5 +506,77 @@
         clearTimeout(toastTimer);
         toastTimer = setTimeout(() => toast.classList.remove('show'), 4000);
     }
+
+    // ===== SYNC SETTINGS =====
+    let _currentSyncMode = 'fixed'; // 'fixed' | 'device'
+
+    function selectSyncMode(mode) {
+        _currentSyncMode = mode;
+        const fixedRow    = document.getElementById('modeFixedRow');
+        const deviceRow   = document.getElementById('modeDeviceRow');
+        const intervalRow = document.getElementById('fixedIntervalRow');
+        const fixedRadio  = document.getElementById('modeFixed');
+        const deviceRadio = document.getElementById('modeDevice');
+
+        if (mode === 'fixed') {
+            fixedRow.classList.add('active');
+            deviceRow.classList.remove('active');
+            fixedRadio.checked  = true;
+            deviceRadio.checked = false;
+            intervalRow.classList.remove('disabled');
+        } else {
+            deviceRow.classList.add('active');
+            fixedRow.classList.remove('active');
+            deviceRadio.checked = true;
+            fixedRadio.checked  = false;
+            intervalRow.classList.add('disabled');
+        }
+    }
+
+    async function loadSyncSettings() {
+        try {
+            const res  = await fetch('/api/sync_settings');
+            const data = await res.json();
+            const interval = data.sync_interval_s ?? 5;
+            const onPoll   = data.sync_on_device_poll ?? false;
+            document.getElementById('syncIntervalInput').value = interval;
+            selectSyncMode(onPoll ? 'device' : 'fixed');
+        } catch(e) {
+            selectSyncMode('fixed');
+        }
+    }
+
+    async function saveSyncSettings() {
+        const btn      = document.getElementById('saveSyncBtn');
+        const interval = parseInt(document.getElementById('syncIntervalInput').value) || 5;
+        const onPoll   = _currentSyncMode === 'device';
+
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
+
+        try {
+            const res  = await fetch('/api/sync_settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sync_interval_s: interval, sync_on_device_poll: onPoll })
+            });
+            const data = await res.json();
+            if (data.success) {
+                const desc = onPoll
+                    ? 'Modo: Na frequência dos dispositivos'
+                    : `Modo: Intervalo fixo de ${interval}s`;
+                showToast(`Configuração salva! ${desc}`, 'success');
+            } else {
+                showToast('Erro ao salvar configuração.', 'error');
+            }
+        } catch(e) {
+            showToast('Erro: ' + e.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-save"></i> Salvar Configuração';
+        }
+    }
+
+    loadSyncSettings();
 </script>
 {% endblock %}

@@ -81,6 +81,7 @@ def log_cloud(msg):
     add_to_console("CLOUD", msg)
 
 AUTH_FILE = 'auth_token.json'
+SYNC_CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'sync_config.json')
 
 # Global state for rate calculations
 LAST_PROC_IO = None
@@ -90,6 +91,38 @@ executor = ThreadPoolExecutor(max_workers=20)
 KEEP_RUNNING = True
 PREVIOUS_PRINTER_STATES = {} # Para detecção de conclusão de impressão
 CLOUD_METADATA = {'user_id': None, 'machines': {}, 'last_refresh': 0}
+
+# ── Configuração de Sincronização ────────────────────────────────────────────
+# sync_on_device_poll: True  → transmite cada dispositivo de energia assim que
+#                             termina a leitura local (respeita polling_interval)
+# sync_on_device_poll: False → transmite todos no intervalo fixo (sync_interval_s)
+SYNC_CONFIG_LOCK = threading.Lock()
+# Fila de dispositivos de energia prontos para sync imediato
+import queue as _queue_mod
+ENERGY_SYNC_QUEUE = _queue_mod.Queue()
+
+def load_sync_config():
+    with SYNC_CONFIG_LOCK:
+        if not os.path.exists(SYNC_CONFIG_FILE):
+            return {'sync_interval_s': 5, 'sync_on_device_poll': False}
+        try:
+            with open(SYNC_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return {
+                    'sync_interval_s': int(data.get('sync_interval_s', 5)),
+                    'sync_on_device_poll': bool(data.get('sync_on_device_poll', False))
+                }
+        except:
+            return {'sync_interval_s': 5, 'sync_on_device_poll': False}
+
+def save_sync_config(cfg):
+    with SYNC_CONFIG_LOCK:
+        try:
+            with open(SYNC_CONFIG_FILE + '.tmp', 'w', encoding='utf-8') as f:
+                json.dump(cfg, f, indent=4, ensure_ascii=False)
+            os.replace(SYNC_CONFIG_FILE + '.tmp', SYNC_CONFIG_FILE)
+        except Exception as e:
+            log_error(f'Erro ao salvar sync_config: {e}')
 
 def load_config():
     if not os.path.exists(CONFIG_FILE):
@@ -242,6 +275,9 @@ def energy_polling_loop():
                 if last_dev_poll and (now - last_dev_poll) < interval:
                     continue
                 
+                # Registra timestamp antes de processar (usado pelo NUT e Tasmota também)
+                _sync_on_poll = load_sync_config().get('sync_on_device_poll')
+                
                 dt = now - last_dev_poll if last_dev_poll else 0.0
                 device_last_poll[dev['id']] = now
                 
@@ -343,6 +379,10 @@ def energy_polling_loop():
                         prev_online = ENERGY_TELEMETRY.get(dev['id'], {}).get('telemetry', {}).get('online', True)
                         if not prev_online:
                             log_energy_event(dev['id'], "✔ Conexão NUT restabelecida")
+                        # Sinaliza sync imediato se modo "na frequência dos dispositivos" (NUT)
+                        if _sync_on_poll:
+                            try: ENERGY_SYNC_QUEUE.put_nowait(dev['id'])
+                            except: pass
                     except Exception as e:
                         if dev['id'] in ENERGY_TELEMETRY:
                             prev = ENERGY_TELEMETRY[dev['id']].get('telemetry', {})
@@ -377,6 +417,10 @@ def energy_polling_loop():
                                     "inputs": data.get('inputs', [])
                                 }
                             }
+                            # Sinaliza sync imediato se modo "na frequência dos dispositivos" (SensorLink)
+                            if _sync_on_poll:
+                                try: ENERGY_SYNC_QUEUE.put_nowait(dev['id'])
+                                except: pass
                             
                             if 'accumulated_kwh' in tel:
                                 current_config = load_energy_config()
@@ -426,6 +470,10 @@ def energy_polling_loop():
                                     "timestamp": time.time()
                                 }
                             }
+                            # Sinaliza sync imediato se modo "na frequência dos dispositivos" (Tasmota)
+                            if _sync_on_poll:
+                                try: ENERGY_SYNC_QUEUE.put_nowait(dev['id'])
+                                except: pass
                             
                             if total > 0:
                                 current_config = load_energy_config()
@@ -565,6 +613,10 @@ def energy_polling_loop():
                                             "raw": respHex
                                         }
                                     }
+                                    # Sinaliza sync imediato se modo "na frequência dos dispositivos"
+                                    if load_sync_config().get('sync_on_device_poll'):
+                                        try: ENERGY_SYNC_QUEUE.put_nowait(dev['id'])
+                                        except: pass
                     except Exception as e:
                         if dev['id'] in ENERGY_TELEMETRY:
                             prev = ENERGY_TELEMETRY[dev['id']].get('telemetry', {})
@@ -1441,6 +1493,99 @@ def verify_auth():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
+@app.route('/api/sync_settings', methods=['GET'])
+def get_sync_settings():
+    return jsonify(load_sync_config())
+
+@app.route('/api/sync_settings', methods=['POST'])
+def save_sync_settings():
+    data = request.json
+    cfg = {
+        'sync_interval_s': max(1, int(data.get('sync_interval_s', 5))),
+        'sync_on_device_poll': bool(data.get('sync_on_device_poll', False))
+    }
+    save_sync_config(cfg)
+    return jsonify({'success': True, 'config': cfg})
+
+def _sync_one_energy_device(dev, session, headers, base_url):
+    """Sincroniza um único dispositivo de energia com a plataforma remota."""
+    sync_code = dev.get('code')
+    if not sync_code: return
+
+    tel_data = ENERGY_TELEMETRY.get(dev['id'], {})
+    if not tel_data.get('success'): return
+
+    tel = tel_data.get('telemetry', {})
+
+    # ── accumulated_kwh vem do config do dispositivo (fonte da verdade persistida)
+    accumulated_kwh = round(float(dev.get('accumulated_kwh', 0.0)), 6)
+
+    # ── data: apenas campos limpos e relevantes para a plataforma
+    data_obj = {
+        "mode": "battery" if tel.get('bateriaEmUso') else "grid",
+        "online":         tel.get('online', True),
+        "inputVac":       tel.get('inputVac', 0),
+        "outputVac":      tel.get('outputVac', 0),
+        "outputHz":       round(tel.get('outputHz', 0), 1),
+        "loadPct":        tel.get('loadPct', 0),
+        "watts":          tel.get('watts', 0),
+        "peakWatts":      tel.get('peakWatts', 0),
+        "currentA":       tel.get('currentA', 0),
+        "peakCurrent":    tel.get('peakCurrent', 0),
+        "batterylevel":   tel.get('batterylevel', 0),
+        "bateriaEmUso":   tel.get('bateriaEmUso', False),
+        "bateriaBaixa":   tel.get('bateriaBaixa', False),
+        "temperature":    tel.get('temperature', 0),
+        "accumulated_kwh": accumulated_kwh,
+    }
+    # Campos opcionais (só envia se tiver valor válido)
+    if tel.get('batteryVoltage') is not None:
+        data_obj["batteryVoltage"] = tel['batteryVoltage']
+    if tel.get('humidity', 0):
+        data_obj["humidity"] = tel['humidity']
+    if tel.get('minInputVac') is not None:
+        data_obj["minInputVac"] = tel['minInputVac']
+    if tel.get('maxInputVac') is not None:
+        data_obj["maxInputVac"] = tel['maxInputVac']
+
+    # ── Preencher associated_devices
+    assoc_list = []
+    associated_ids = dev.get('associatedIds', [])
+    if associated_ids:
+        with PRINTERS_LOCK:
+            for pid in associated_ids:
+                pr = next((p for p in PRINTERS if str(p.config['id']) == str(pid)), None)
+                if pr and pr.config.get('platform_token'):
+                    assoc_list.append({
+                        "platform_token": pr.config.get('platform_token'),
+                        "name": pr.name if hasattr(pr, 'name') else pr.config.get('name', 'Printer')
+                    })
+
+    payload = {
+        "platform_token": sync_code,
+        "name": dev.get('name', 'Energy Device'),
+        "integration": {
+            "type":              dev.get('integration', 'unknown'),
+            "brand":             dev.get('brand', ''),
+            "port":              dev.get('port', ''),
+            "polling_interval_s": dev.get('polling_interval', 1),
+            "nominal_va":        dev.get('nominal_va', 1800),
+            "power_factor":      dev.get('power_factor', 0.7),
+        },
+        "associated_devices": assoc_list,
+        "timestamp": time.time(),
+        "data": data_obj,
+    }
+
+    log_cloud(f"Sincronizando Dispositivo Energia {dev['name']}")
+
+    try:
+        sync_resp = session.post(f"{base_url}/energy/sync", headers=headers, json=payload, timeout=5)
+        if sync_resp.status_code != 200:
+            log_warn(f"Erro Cloud Energia ({dev['name']}): Status {sync_resp.status_code} - {sync_resp.text[:120]}")
+    except Exception as e:
+        log_warn(f"Erro Cloud Energia ({dev['name']}) falha de rede: {e}")
+
 def aditivaflow_sync_loop():
     log_info("[Cloud] Iniciando loop de sincronização AditivaFlow...")
     base_url = "https://iwsqfjngeicyrcdowdbi.supabase.co/functions/v1/device-api"
@@ -1709,68 +1854,36 @@ def aditivaflow_sync_loop():
             except Exception as e:
                 log_error(f"[Cloud] Erro ao sincronizar {p.config.get('name')}: {e}")
         
-        # ── SINCRONIZAÇÃO DE DISPOSITIVOS DE ENERGIA ─────────────────────
+        # ── SINCRONIZAÇÃO DE DISPOSITIVOS DE ENERGIA ─────────────────
+        _scfg = load_sync_config()
         try:
             energy_config = load_energy_config()
-            for dev in energy_config:
-                if not KEEP_RUNNING: break
-                
-                sync_code = dev.get('code') # O usuário chamou de platform token, mas salvamos em 'code'
-                if not sync_code: continue
-                
-                try:
-                    tel_data = ENERGY_TELEMETRY.get(dev['id'], {})
-                    if not tel_data.get('success'): continue
-                    
-                    tel = tel_data.get('telemetry', {})
-                    
-                    data_obj = tel.copy()
-                    
-                    # Garantir campos numéricos padrão
-                    for k in ['inputVac', 'outputVac', 'watts', 'currentA', 'temperature', 'humidity', 'accumulated_kwh']:
-                        data_obj[k] = tel.get(k, 0)
-                        
-                    # Preencher associated_devices
-                    assoc_list = []
-                    associated_ids = dev.get('associatedIds', [])
-                    associated_names = dev.get('associatedNames', [])
-                    
-                    if associated_ids:
-                        with PRINTERS_LOCK:
-                            for idx, pid in enumerate(associated_ids):
-                                pr = next((p for p in PRINTERS if str(p.config['id']) == str(pid)), None)
-                                if pr and pr.config.get('platform_token'):
-                                    assoc_list.append({
-                                        "platform_token": pr.config.get('platform_token'),
-                                        "name": pr.name if hasattr(pr, 'name') else pr.config.get('name', 'Printer')
-                                    })
-                                    
-                    payload = {
-                        "platform_token": sync_code,
-                        "name": dev.get('name', 'Energy Device'),
-                        "integration": {
-                            "type": dev.get('integration', 'unknown'),
-                            "brand": dev.get('brand', ''),
-                            "port": dev.get('port', ''),
-                            "polling_interval_s": dev.get('polling_interval', 1)
-                        },
-                        "associated_devices": assoc_list,
-                        "data": data_obj
-                    }
-                    
-                    log_cloud(f"Sincronizando Dispositivo Energia {dev['name']}")
-                    
-                    sync_resp = None
+            devs_by_id = {str(d['id']): d for d in energy_config}
+
+            if _scfg.get('sync_on_device_poll'):
+                # Modo "na frequência dos dispositivos" – drena a fila
+                synced_ids = set()
+                while True:
                     try:
-                        sync_resp = session.post(f"{base_url}/energy/sync", headers=headers, json=payload, timeout=5)
+                        dev_id = ENERGY_SYNC_QUEUE.get_nowait()
+                        str_id = str(dev_id)
+                        if str_id in synced_ids: continue
+                        synced_ids.add(str_id)
+                        dev = devs_by_id.get(str_id)
+                        if dev:
+                            _sync_one_energy_device(dev, session, headers, base_url)
+                    except _queue_mod.Empty:
+                        break
+            else:
+                # Modo intervalo fixo – sincroniza todos agora
+                for dev in energy_config:
+                    if not KEEP_RUNNING: break
+                    sync_code = dev.get('code')
+                    if not sync_code: continue
+                    try:
+                        _sync_one_energy_device(dev, session, headers, base_url)
                     except Exception as e:
-                        log_warn(f"Erro Cloud Energia ({dev['name']}) falha de rede: {e}")
-                        
-                    if sync_resp and sync_resp.status_code != 200:
-                        log_warn(f"Erro Cloud Energia ({dev['name']}): Status {sync_resp.status_code} - {sync_resp.text[:120]}")
-                        
-                except Exception as e:
-                    log_error(f"[Cloud] Erro ao sincronizar dispositivo energia {dev.get('name')}: {e}")
+                        log_error(f"[Cloud] Erro ao sincronizar dispositivo energia {dev.get('name')}: {e}")
         except Exception as e:
             log_error(f"[Cloud] Erro ao carregar config de energia para sync: {e}")
         
